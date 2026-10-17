@@ -42,10 +42,11 @@ const urgentBreach = (cmd: string[], elapsedS: number) => {
     `\n════ [two-sec BREACH — URGENT, MUST DO] ════\n` +
     `  '${cmd.slice(0, 8).join(" ")}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
     `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
-    `  MUST DO NOW (ast-find faster, in order):\n` +
-    `  1. ffs impact <the-slow-symbol>   # blast radius — right fix point\n` +
-    `  2. ffs flow <the-slow-symbol>     # def+body+callees — find the O(n²)/spawn storm\n` +
-    `  3. forge borrow '<what it does>'  # external faster prior art\n` +
+    `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +
+    `  1. ast-grep (sg)     sg -p '<pattern>'    # structural AST search — tree-sitter exact\n` +
+    `     bm25 <query>                            # semantic recall over symbols/comments\n` +
+    `  2. ffi flow <symbol> / ffs impact <symbol> # def+body+callees + blast radius\n` +
+    `  3. forge borrow '<what it does>'           # external faster prior art\n` +
     `  4. OR background it (background_process) — never wait longer.\n` +
     `  DO NOT retry the same slow command. A breach without a raced fix = defect.\n` +
     `═══════════════════════════════════════\n`,
@@ -95,9 +96,9 @@ function genId(name?: string) {
 }
 
 const bannedAsFirst: Set<string> = new Set([
-  "tail", "head", "cat", "grep", "sed", "awk", "cut", "sort", "uniq", "find",
+  "tail", "head", "grep", "sed", "awk", "cut", "sort", "uniq", "find",
   "echo", "printf", "wc", "less", "more", "xxd", "hexdump", "od", "base64",
-  "tee", "tr", "paste", "join", "xargs", "split", "cp", "mv", "rm", "mkdir",
+  "tee", "tr", "paste", "join",
 ]);
 
 async function streamReader(stream: ReadableStream<Uint8Array> | null, sink: { out: string; write: (t: string) => void }): Promise<void> {
