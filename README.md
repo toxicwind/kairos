@@ -69,10 +69,26 @@ bun test                             # policy tests
 
 ## Prior art posture
 
-Borrowed ideas (papers are not the breakthrough, this integration is):
-guardrail-DoS resilience (never bypassable via obfuscation), hybrid
-static+dynamic tool-call analysis, recoverable execution (AgentRewind-style
-"here's what to do instead" recovery in every notice).
+Borrowed ideas (papers are not the breakthrough, this integration is — the
+synthesis of a deadline runner + command-policy guard + AST-driven recovery):
+
+- **Recoverable execution** — "here's what to do instead" recovery in every
+  notice, the AgentRewind family: [JWang-Langer/agentrewind](https://github.com/JWang-Langer/agentrewind)
+  (framework-agnostic LLM-agent record/replay/revert/diff) and
+  [ESSAILab/AgentRewindRT](https://github.com/ESSAILab/AgentRewindRT) (agent
+  sandbox with anomaly-detection morph + rollback).
+- **Guardrail-DoS / bypass-resilience** — never bypassable via obfuscation;
+  the same threat model as LLM-guardrail evasion research (BrokenGuard-style
+  adversarial-prompt studies of "can you hide a forbidden action in an
+  obfuscated command and still get past the guard").
+- **Hybrid static+dynamic tool-call analysis** — the guard inspects both the
+  command line (static) and the running process / output stream (dynamic), so a
+  truncation or redirect is caught at execution, not just at parse time.
+- **Upstream crash-driven fixing** — the "no full rebuild for a hotfix" ethos
+  comes from routing around [oven-sh/bun crash fixes](https://github.com/oven-sh/bun/pulls)
+  via prebuilt upgrades + pure-JS fallbacks instead of recompiling the engine
+  ([#39815](https://github.com/oven-sh/bun/pull/39815),
+  [#39967](https://github.com/oven-sh/bun/pull/39967)).
 
 ## License
 
