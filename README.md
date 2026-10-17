@@ -1,18 +1,18 @@
 <div align="right">
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
-[![ranch](https://img.shields.io/badge/ranch-two--sec-black?style=for-the-badge)](https://github.com/toxicwind/two-sec)
+[![ranch](https://img.shields.io/badge/ranch-kairos-black?style=for-the-badge)](https://github.com/toxicwind/kairos)
 [![Bun nightly](https://img.shields.io/badge/bun-1.4.x--canary-f9f1e1?style=for-the-badge&logo=bun)](https://bun.sh)
 
 </div>
 
-# two-sec
+# kairos (καιρός)
 
-The 2-second rule, first-class: every command an agent runs gets a **2.0s
-hard deadline**; breaching = FAILED, and the trigger to **race a faster
-alternative** (never wait longer). A command policy guard cancels
-error-swallowing and output-destroying commands with an **urgent, AST-driven
-must-do notice** the agent sees inline on stdout.
+*The opportune moment* — the 2-second rule, first-class: every command an agent
+runs gets a **2.0s hard deadline**; breaching = FAILED, and the trigger to
+**race a faster alternative** (never wait longer). A command policy guard
+cancels error-swallowing and output-destroying commands with an **urgent,
+AST-driven must-do notice** the agent sees inline on stdout.
 
 Logic lives in Bun (`policy.ts` → `guard.ts` → `runner.ts`); bash is glue
 only — a GENERATED static shim (`shim.sh`, zero bun spawns at runtime).
@@ -24,16 +24,30 @@ flowchart LR
     shim -->|every cmd| guard[guard.ts · policy]
     guard -->|cancel| cx[exit 126 + urgent]
     guard -->|rewrite| rw[notify + let run]
-    runner -->|breach| urgent[URGENT: ffs impact → ffs flow → forge borrow]
+    runner -->|breach| urgent[URGENT: ast-grep → bm25 → forge borrow]
 ```
+
+## What the runner does
+
+- **Pipeline splitter** — `|`, `&&`, `;` are split into segments; each is
+  ban-checked and deadline-checked individually.
+- **Truncation rewriter** — `| head/tail/wc -l` is rewritten so the FULL output
+  persists to the run-fast session file and only the window is shown. Never
+  loses evidence.
+- **Live-persist sink** — every chunk flushes to stdout + the session file
+  synchronously (async execution preserved, nothing buffered-and-lost).
+- **Hard blocks** — banned tools (`find`→`fd`, `cat`→read tool, `sed`→ast-grep,
+  `head/tail`, …) are refused with the WHY + the exact replacement to run.
+- **Deadline bumps** — legitimately-slow-but-necessary commands get wider
+  windows: `typecheck`/`tsgo`/`turbo` 180s, `git status` 20s. Base is 2.0s.
 
 ## Policy classes
 
 | Action | Patterns | Behavior |
 | --- | --- | --- |
 | **cancel** | `\| true`, `sleep N` | blocked, exit 126, urgent fix notice |
-| **rewrite** | `>/dev/null`, `2>&1`, `\| head/tail/wc`, `head/tail -c` | notified + instructed to rerun full-output |
-| **slow-route** | git push/fetch/clone, bun install/test, npm ci, cargo/go builds, gitleaks, make… | deadline runner: breach = urgent AST plan |
+| **rewrite** | `>/dev/null`, `2>&1`, `\| head/tail/wc`, `head/tail -c` | full output persisted, window shown |
+| **slow-route** | git push/fetch/clone, bun install/test/typecheck, npm ci, cargo/go builds, gitleaks, make… | deadline runner with bumped window |
 
 ## The breach = AST-find-faster contract
 
@@ -48,9 +62,9 @@ A breach notice is not a nag — it names the exact commands to race faster:
 ## Install
 
 ```bash
-bash -c 'echo "export BASH_ENV=$HOME/estate/ranch/two-sec/shim.sh" >> ~/.bash_profile'
+bash -c 'echo "export BASH_ENV=$HOME/estate/ranch/kairos/shim.sh" >> ~/.bash_profile'
 bun run src/cli.ts init > shim.sh   # regenerate after policy edits
-bun test                             # 6/6 policy tests
+bun test                             # policy tests
 ```
 
 ## Prior art posture
