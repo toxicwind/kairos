@@ -39,7 +39,7 @@ flowchart LR
 
 A breach notice is not a nag — it names the exact commands to race faster:
 
-1. `ast-grep <pattern>` — tree-sitter structural AST search (exact)
+1. `ast-grep run -p '<pattern>'` — tree-sitter structural AST search (exact)
    `bm25 <query>` — semantic recall over symbols/comments
 2. `ffs flow <symbol>` / `ffs impact <symbol>` — def+body+callees + blast radius
 3. `forge borrow '<what the command does>'` — external faster prior art
