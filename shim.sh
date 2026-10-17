@@ -84,5 +84,5 @@ timeout() { shift 2>/dev/null; "$RF_BIN" "$@"; }
 tail() { if [ "$1" = "-n" ] && [ -f "$3" ]; then echo "[two-sec] tail on files → ffs read $3 --full" >&2; command ffs read "$3" --full 2>/dev/null || command tail "$@"; else command tail "$@"; fi; }
 head() { if [ "$1" = "-n" ] && [ -f "$3" ]; then echo "[two-sec] head on files → ffs read $3 --budget $2" >&2; command ffs read "$3" --budget "${2#-}" 2>/dev/null || command head "$@"; else command head "$@"; fi; }
 
-export -f _2s_slow _2s_guard _2s_urgent git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head 2>/dev/null
+export -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head 2>/dev/null
 export BASH_2S_SHIM=1
