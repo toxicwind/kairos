@@ -173,7 +173,7 @@ const REPLACEMENTS: Record<string, string> = {
 async function streamReader(stream: ReadableStream<Uint8Array> | null, sink: { out: string; write: (t: string) => void }): Promise<void> {
   if (!stream) return;
   const reader = stream.getReader();
-  try { while (true) { const { done, value } = await reader.read(); if (done) break; const t = new TextDecoder().decode(value); sink.out += t; sink.write(t); } }
+  try { while (true) { const { done, value } = await reader.read(); if (done) break; const t = new TextDecoder().decode(value); try { sink.write(t); } catch { break; } sink.out += t; } }
   finally { reader.releaseLock(); }
 }
 
@@ -226,6 +226,39 @@ function parseArgs(args: string[]): {
       `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
     );
     process.exit(126);
+  }
+
+  // Pipeline / chained-command guard: split on | and && and ; — check EVERY command name.
+  // Catches `cmd | head`, `a && tail`, `b; wc` — truncation hiding mid-pipeline.
+  const chain = args.join(" ");
+  const pipeTrunc = /(\|\s*head|\|\s*tail|\|\s*wc\s+-l)/.test(chain);
+  if (pipeTrunc) {
+    process.stderr.write(
+      `\n[run-fast HARD-BLOCKED] pipeline truncation — '${chain}' pipes into head/tail/wc -l.\n` +
+      `\n  WHY: it throws away the evidence trail (head) or the tail you'll want next.\n` +
+      `\n  DO THIS INSTEAD: run the command bare, capture FULL output via run-fast, then\n` +
+      `  read the session file with:  run-fast logs <id>   (or read the file with the read tool).\n` +
+      `\n  Contract: never pipe to head/tail/wc in a transcript this session.\n`,
+    );
+    process.exit(126);
+  }
+  // Any OTHER banned tool appearing anywhere in the chain (not just first arg).
+  // Exempt the fast tools' own subcommands: ffs find, fd, rg, ast-grep, git, bun, mise, cargo.
+  const fastParents = new Set(["ffs", "fd", "rg", "ast-grep", "git", "bun", "mise", "cargo", "node", "npm", "fsutil"]);
+  for (let i = 0; i < cmd.length; i++) {
+    const prev = i > 0 ? cmd[i - 1].split("/").pop() ?? "" : "";
+    if (fastParents.has(prev)) continue; // subcommand of a sanctioned fast tool
+    const n = cmd[i].split("/").pop() ?? "";
+    if (bannedAsFirst.has(n)) {
+      const replace = REPLACEMENTS[n] ?? "ffs / ast-grep / the read tool";
+      process.stderr.write(
+        `\n[run-fast HARD-BLOCKED] '${n}' (inside the chain) is banned.\n` +
+        `  WHY: ${WHY[n] ?? "slow/truncating tool in the chain"}\n` +
+        `  DO THIS INSTEAD: ${replace}\n` +
+        `  Contract: remove '${n}' from the chain; run it correctly.\n`,
+      );
+      process.exit(126);
+    }
   }
 
   return { env, cwd: cwd ?? process.cwd(), cmd, sessionName };
