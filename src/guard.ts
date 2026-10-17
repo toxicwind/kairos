@@ -14,7 +14,7 @@ import { effectiveBans, logVerdict } from "./project-policy.ts";
 
 const urgent = (msg: string) => {
   process.stdout.write(
-    `════ [two-sec GUARD — URGENT, CANCELLED] ════\n` +
+    `════ [kairos GUARD — URGENT, CANCELLED] ════\n` +
     `  ${msg.reason}\n` +
     `  MUST DO: ${msg.fix}\n` +
     `═══════════════════════════════════════\n`,

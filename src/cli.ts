@@ -1,7 +1,7 @@
 /**
- * cli.ts — two-sec / run-fast multiplexer.
+ * cli.ts — kairos / run-fast multiplexer.
  *
- * Subcommands (when called as run-fast or two-sec):
+ * Subcommands (when called as run-fast or kairos):
  *   run <cmd…>          spawn session, stream output
  *   attach <id>         attach to session
  *   logs [id]           session output
@@ -9,7 +9,7 @@
  *   purge [pattern]     remove sessions
  *   cancel <id>         kill session
  *
- * Legacy two-sec-only commands:
+ * Legacy two-sec-only commands (kept for compat):
  *   guard <line>        allow(0)/cancel(1)
  *   route <bin sub>     slow/fast detection
  *   init                emit bash shim

@@ -39,7 +39,7 @@ const scold = (msg: string) => {
 
 const urgentBreach = (cmd: string[], elapsedS: number) => {
   process.stdout.write(
-    `\n════ [two-sec BREACH — URGENT, MUST DO] ════\n` +
+    `\n════ [kairos BREACH — URGENT, MUST DO] ════\n` +
     `  '${cmd.slice(0, 8).join(" ")}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
     `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
     `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +

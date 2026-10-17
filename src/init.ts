@@ -31,17 +31,17 @@ export function emitBashShim(): string {
   *[[:space:]]head[[:space:]]-[[:space:]]*c*|*[[:space:]]tail[[:space:]]-[[:space:]]*c*)
       _2s_urgent "byte truncation (head/tail -c)" "persist full output; slice in code only"; return 1 ;;`;
 
-  return `# two-sec bash glue — GENERATED from ranch/two-sec/src/policy.ts (bun SSOT).
-# Regenerate: bun run ranch/two-sec/src/cli.ts init > ranch/two-sec/shim.sh
+  return `# kairos bash glue — GENERATED from ranch/kairos/src/policy.ts (bun SSOT).
+# Regenerate: bun run ranch/kairos/src/cli.ts init > ranch/kairos/shim.sh
 _2S_GUARD_SRC="${__filename}"
 RF_BIN="$HOME/estate/bin/run-fast"
-[ -x "$RF_BIN" ] || RF_BIN="$HOME/estate/ranch/two-sec/bin/two-sec"
+[ -x "$RF_BIN" ] || RF_BIN="$HOME/estate/ranch/kairos/bin/kairos"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="\${RF_QUIET:-1}"
 export RF_DEADLINE="\${RF_DEADLINE:-2.0}"
 
 _2s_urgent() {
-  echo "════ [two-sec GUARD — URGENT, CANCELLED] ════"
+  echo "════ [kairos GUARD — URGENT, CANCELLED] ════"
   echo "  $1"
   echo "  MUST DO: $2"
 }
