@@ -1,12 +1,15 @@
 {
-  "name": "two-sec",
+  "name": "kairos",
   "version": "1.0.0",
   "private": true,
-  "description": "two-sec — the 2-second rule, first-class: deadline runner, command policy guard, bash shim emitter (full Bun, bash is glue only)",
+  "description": "kairos — the 2-second rule, first-class: deadline runner, command policy guard, bash shim emitter (full Bun, bash is glue only)",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
-  "bin": { "two-sec": "./src/cli.ts" },
+  "bin": {
+    "kairos": "./src/cli.ts",
+    "run-fast": "./src/cli.ts"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit"
