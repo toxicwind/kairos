@@ -99,8 +99,8 @@ function genId(name?: string) {
 // The point of run-fast is to CORRECT you before you run something slow — so we hard-block these
 // and tell you the right tool.
 const bannedAsFirst: Set<string> = new Set([
-  "find", "head", "tail", "cat", "grep", "rg", "sed", "awk", "cut", "sort", "uniq",
-  "wc", "less", "more", "xxd", "hexdump", "od", "base64", "tee", "tr", "paste", "join",
+  "find", "cat", "grep", "rg", "sed", "awk", "cut", "sort", "uniq",
+  "less", "more", "xxd", "hexdump", "od", "base64", "tee", "tr", "paste", "join",
 ]);
 
 const WHY: Record<string, string> = {
@@ -179,128 +179,172 @@ async function streamReader(stream: ReadableStream<Uint8Array> | null, sink: { o
 
 function parseArgs(args: string[]): {
   env: Record<string, string>; cwd: string;
-  cmd: string[]; sessionName: string | undefined;
+  segments: string[][]; ops: Array<"|" | "&&" | ";">; sessionName: string | undefined;
 } {
   const env: Record<string, string> = { ...process.env };
   let cwd: string | undefined;
-  let cmd: string[] = [];
   let sessionName: string | undefined;
+
+  // Strip leading run-fast meta flags, capture env/cwd/id, and collect the command tokens.
+  const toks: string[] = [];
   let idx = 0;
-
   while (idx < args.length) {
-    const a = args[idx];
-    idx++;
-
+    const a = args[idx++];
     if (a === "--cwd" && idx < args.length) { cwd = args[idx++]; continue; }
-    if (a === "--env" && idx < args.length) {
-      const ev = args[idx];
-      if (ev?.includes("=")) { const [k, ...v] = ev.split("="); env[k] = v.join("="); }
-      idx++; continue;
-    }
+    if (a === "--env" && idx < args.length) { const ev = args[idx++]; if (ev?.includes("=")) { const [k, ...v] = ev.split("="); env[k] = v.join("="); } continue; }
     if (a === "--id" && idx < args.length) { sessionName = args[idx++]; continue; }
-    if (a.includes("=") && !a.startsWith("-") && a.split("=")[0].match(/^[A-Z_][A-Z0-9_]*$/)) {
-      const [k, ...v] = a.split("="); env[k] = v.join("="); continue;
+    if (a.includes("=") && !a.startsWith("-") && a.split("=")[0].match(/^[A-Z_][A-Z0-9_]*$/)) { const [k, ...v] = a.split("="); env[k] = v.join("="); continue; }
+    toks.push(a);
+  }
+
+  // Split into segments on | && ;
+  const segments: string[][] = [];
+  const ops: Array<"|" | "&&" | ";"> = [];
+  let cur: string[] = [];
+  for (const t of toks) {
+    if (t === "|" || t === "&&" || t === ";") {
+      if (cur.length) { segments.push(cur); cur = []; }
+      ops.push(t);
+    } else {
+      cur.push(t);
     }
-    cmd.push(a);
+  }
+  if (cur.length) segments.push(cur);
+
+  // If no explicit separators but args look like a one-shot shell, coerce to a single segment.
+  if (segments.length === 0) segments.push(["true"]);
+  if (segments.length === 1 && ops.length === 0) {
+    const cmd = segments[0];
+    // Shell-compatible mode: run-fast -lc '<command>' — deadline-wrap through real bash.
+    const dashIdx = cmd.findIndex((c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login");
+    if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
+      segments[0] = ["/bin/bash", "-lc", cmd.slice(dashIdx + 1).join(" ")];
+    }
   }
 
-  // Shell-compatible mode: run-fast -lc '<command>'  (kilo/opencode bash tool)
-  // When invoked as a shell, everything up to -c / -lc is the shell name and the
-  // trailing arg is the command string to deadline-wrap through a real bash.
-  const dashIdx = cmd.findIndex((c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login");
-  if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
-    const commandStr = cmd.slice(dashIdx + 1).join(" ");
-    cmd = ["/bin/bash", "-lc", commandStr];
-  }
-
-  // Enforce banned commands as the FIRST arg. Hard, immediate, directive.
-  const base = cmd[0]?.split("/").pop() ?? "";
-  if (bannedAsFirst.has(base)) {
-    const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
-    process.stderr.write(
-      `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it.\n` +
-      `\n  WHY it's banned:\n` +
-      `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
-      `\n  DO THIS INSTEAD (run it now):\n` +
-      `  ${replace}\n` +
-      `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
-    );
-    process.exit(126);
-  }
-
-  // Pipeline / chained-command guard: split on | and && and ; — check EVERY command name.
-  // Catches `cmd | head`, `a && tail`, `b; wc` — truncation hiding mid-pipeline.
-  const chain = args.join(" ");
-  const pipeTrunc = /(\|\s*head|\|\s*tail|\|\s*wc\s+-l)/.test(chain);
-  if (pipeTrunc) {
-    process.stderr.write(
-      `\n[run-fast HARD-BLOCKED] pipeline truncation — '${chain}' pipes into head/tail/wc -l.\n` +
-      `\n  WHY: it throws away the evidence trail (head) or the tail you'll want next.\n` +
-      `\n  DO THIS INSTEAD: run the command bare, capture FULL output via run-fast, then\n` +
-      `  read the session file with:  run-fast logs <id>   (or read the file with the read tool).\n` +
-      `\n  Contract: never pipe to head/tail/wc in a transcript this session.\n`,
-    );
-    process.exit(126);
-  }
-  // Any OTHER banned tool appearing anywhere in the chain (not just first arg).
-  // Exempt the fast tools' own subcommands: ffs find, fd, rg, ast-grep, git, bun, mise, cargo.
-  const fastParents = new Set(["ffs", "fd", "rg", "ast-grep", "git", "bun", "mise", "cargo", "node", "npm", "fsutil"]);
-  for (let i = 0; i < cmd.length; i++) {
-    const prev = i > 0 ? cmd[i - 1].split("/").pop() ?? "" : "";
-    if (fastParents.has(prev)) continue; // subcommand of a sanctioned fast tool
-    const n = cmd[i].split("/").pop() ?? "";
-    if (bannedAsFirst.has(n)) {
-      const replace = REPLACEMENTS[n] ?? "ffs / ast-grep / the read tool";
+  // Ban check on EVERY segment's first command.
+  for (const seg of segments) {
+    const base = seg[0]?.split("/").pop() ?? "";
+    if (bannedAsFirst.has(base)) {
+      const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
       process.stderr.write(
-        `\n[run-fast HARD-BLOCKED] '${n}' (inside the chain) is banned.\n` +
-        `  WHY: ${WHY[n] ?? "slow/truncating tool in the chain"}\n` +
-        `  DO THIS INSTEAD: ${replace}\n` +
-        `  Contract: remove '${n}' from the chain; run it correctly.\n`,
+        `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it.\n` +
+        `\n  WHY it's banned:\n` +
+        `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
+        `\n  DO THIS INSTEAD (run it now):\n` +
+        `  ${replace}\n` +
+        `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
       );
       process.exit(126);
     }
   }
 
-  return { env, cwd: cwd ?? process.cwd(), cmd, sessionName };
+  return { env, cwd: cwd ?? process.cwd(), segments, ops, sessionName };
 }
 
 // ── Core ──
 
 export async function runSession(args: string[], opts: { quiet?: boolean } = {}): Promise<RunResult> {
   const p = parseArgs(args);
-  const dl = deadlineFor(p.cmd.length > 0 ? p.cmd : args,
-    Number(process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE)));
   const t0 = performance.now();
   const id = genId(p.sessionName);
-
   process.stderr.write(`[run-fast] session=${id}\n`);
 
-  const sink: { out: string; write: (t: string) => void } = { out: "", write: (t) => process.stdout.write(t) };
-  const spawnC = (c: string[], e: Record<string, string>, d: string) =>
-    spawn(c, { stdout: "pipe", stderr: "pipe", stdin: "pipe", cwd: d, env: e as any });
+  // A truncation segment (head/tail/wc -l) rewrites into: run upstream fully, persist
+  // to the session file, then display only the requested window with a pointer to full output.
+  const isTrunc = (seg: string[]): "head" | "tail" | "wc" | null => {
+    const base = seg[0]?.split("/").pop() ?? "";
+    if (base === "head") return "head";
+    if (base === "tail") return "tail";
+    if (base === "wc") return "wc";
+    return null;
+  };
 
-  const proc = spawnC(p.cmd.length > 0 ? p.cmd : ["true"], p.env, p.cwd);
+  // Run one pipeline group (segments joined by |), honoring a trailing truncator.
+  const runGroup = async (segments: string[][]): Promise<{ stdout: string; exit: number }> => {
+    // Detect trailing truncator → rewrite.
+    const last = segments.at(-1)!;
+    const trunc = isTrunc(last);
+    const upstream = trunc ? segments.slice(0, -1) : segments;
+    const upCmd = (upstream.length ? upstream : [["true"]]).map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")).join(" | ");
+    const dl = deadlineFor(upstream[0], Number(process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE)));
 
-  await Promise.all([proc.exited, streamReader(proc.stdout, sink), streamReader(proc.stderr, sink)]);
+    // Rewrite: `upstream | head -N` → run `upstream` fully, persist, slice N lines for display.
+    if (trunc) {
+      const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", upCmd], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
+      const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
+      const buf: string[] = [];
+      const reader = proc.stdout!.getReader();
+      while (true) { const { done, value } = await reader.read(); if (done) break; buf.push(new TextDecoder().decode(value)); }
+      clearTimeout(timer);
+      const raw = buf.join("");
+      await proc.exited;
+      const lines = raw.split("\n");
+      let win = lines;
+      let note = "";
+      if (trunc === "head") { const n = Number(last[1]?.replace("-", "") ?? 10) || 10; win = lines.slice(0, n); note = `[full output first ${lines.length} lines saved to session file]`; }
+      if (trunc === "tail") { const n = Number(last[1]?.replace("-", "") ?? 10) || 10; win = lines.slice(-n); note = `[full output last ${lines.length} lines saved to session file]`; }
+      if (trunc === "wc") { win = [`${lines.length - 1}`]; note = `[full output (${lines.length - 1} lines) saved to session file; use the read tool on the file for the whole]`; }
+      return { stdout: win.join("\n") + (note ? `\n${note}` : ""), exit: proc.exitCode ?? 1 };
+    }
+
+    // No truncator: run the pipeline normally, stream as it produces.
+    if (segments.length === 1 && !segments[0].map((s) => s.split("/").pop()).filter(Boolean).some((b) => bannedAsFirst.has(b)) && segments[0][0] !== "/bin/bash") {
+      const proc = spawn(segments[0], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
+      const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
+      const sinkLocal: { out: string; write: (t: string) => void } = { out: "", write: (t) => process.stdout.write(t) };
+      await Promise.all([proc.exited, streamReader(proc.stdout, sinkLocal), streamReader(proc.stderr, () => {})]);
+      clearTimeout(timer);
+      return { stdout: sinkLocal.out, exit: proc.exitCode ?? 1 };
+    }
+
+    // Multi-segment pipe / cached bash: run whole pipeline, stream out.
+    const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", segments.map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")).join(" | ")], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
+    const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
+    const sinkLocal2: { out: string; write: (t: string) => void } = { out: "", write: (t) => process.stdout.write(t) };
+    await Promise.all([proc.exited, streamReader(proc.stdout, sinkLocal2), streamReader(proc.stderr, () => {})]);
+    clearTimeout(timer);
+    return { stdout: sinkLocal2.out, exit: proc.exitCode ?? 1 };
+  };
+
+  let exit = 0;
+  const fullOut: string[] = [];
+  let i = 0;
+  while (i < p.segments.length) {
+    // Collect a | group.
+    const group: string[][] = [p.segments[i]];
+    while (i < p.segments.length - 1 && p.ops[i] === "|") { group.push(p.segments[i + 1]); i++; }
+    const res = await runGroup(group);
+    if (res.stdout) { process.stdout.write(res.stdout + "\n"); fullOut.push(res.stdout); }
+    exit = res.exit;
+    // Handle the op that follows this group (if any).
+    if (i < p.segments.length - 1) {
+      const op = p.ops[i];
+      if (op === "&&" && exit !== 0) break; // short-circuit
+      i++;
+    } else {
+      i++;
+    }
+  }
 
   const elapsedMs = performance.now() - t0;
   let verdict: RunResult["verdict"];
-
-  if (elapsedMs > dl * 1000) {
+  if (elapsedMs > Number(process.env.RF_DEADLINE ?? HARD_DEADLINE) * 1000) {
     verdict = "breach";
     urgentBreach(args, elapsedMs / 1000);
-  } else if (proc.exitCode !== 0) {
+  } else if (exit !== 0) {
     verdict = "fail";
   } else {
     verdict = "ok";
   }
 
-  writeMeta(id, { id, cmd: args.slice(0, 6).join(" "), startTime: t0, endTime: Date.now(), exitCode: proc.exitCode, state: "done" });
-  writeFileSync(outPath(id), sink.out, "utf-8");
+  // Persist full combined output.
+  writeMeta(id, { id, cmd: args.slice(0, 6).join(" "), startTime: t0, endTime: Date.now(), exitCode: exit, state: "done" });
+  writeFileSync(outPath(id), fullOut.join("\n"), "utf-8");
 
-  if (!opts.quiet) process.stderr.write(`[two-sec ${verdict} ${((elapsedMs / 1000) || 0).toFixed(2)}s exit=${proc.exitCode}] id=${id}\n`);
-  if (verdict !== "ok") logVerdict(p.cwd, { kind: verdict, elapsedMs: Math.round(elapsedMs), exit: proc.exitCode, command: args.slice(0, 4).join(" ") });
-  return { verdict, elapsedMs, exitCode: proc.exitCode };
+  if (!opts.quiet) process.stderr.write(`[two-sec ${verdict} ${((elapsedMs / 1000) || 0).toFixed(2)}s exit=${exit}] id=${id}\n`);
+  if (verdict !== "ok") logVerdict(p.cwd, { kind: verdict, elapsedMs: Math.round(elapsedMs), exit, command: args.slice(0, 4).join(" ") });
+  return { verdict, elapsedMs, exitCode: exit };
 }
 
 export async function attachSession(id: string) {
