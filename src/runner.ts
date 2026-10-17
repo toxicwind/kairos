@@ -7,6 +7,8 @@
  *   - breach: URGENT must-do block on STDOUT (agent-visible) + exit 9
  */
 import { spawn } from "bun";
+import { effectiveDeadline, logVerdict } from "./project-policy.ts";
+import { deadlineFor } from "./policy.ts";
 
 export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
@@ -29,11 +31,13 @@ const urgentBreach = (cmd: string[], elapsedS: number, deadlineS: number) => {
 };
 
 export async function run(args: string[], opts: { deadlineS?: number; quiet?: boolean; cwd?: string } = {}): Promise<RunResult> {
-  const deadlineS = opts.deadlineS ?? Number(process.env.RF_DEADLINE ?? 2.0);
+  const cwd = opts.cwd ?? process.cwd();
+  const base = opts.deadlineS ?? Number(process.env.RF_DEADLINE ?? effectiveDeadline(cwd, 2.0));
+  const deadlineS = deadlineFor(args, base); // per-command bump (first-class, policy.ts)
   const quiet = opts.quiet ?? process.env.RF_QUIET === "1";
   const t0 = performance.now();
 
-  const proc = spawn(args, { stdout: "inherit", stderr: "inherit", stdin: "inherit", cwd: opts.cwd });
+  const proc = spawn(args, { stdout: "inherit", stderr: "inherit", stdin: "inherit", cwd });
   const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, deadlineS * 1000);
   const code = await proc.exited;
   clearTimeout(timer);
@@ -51,6 +55,9 @@ export async function run(args: string[], opts: { deadlineS?: number; quiet?: bo
 
   if (verdict !== "ok" || !quiet) {
     process.stderr.write(`[two-sec ${verdict} ${((elapsedMs / 1000) || 0).toFixed(2)}s exit=${code}]\n`);
+  }
+  if (verdict !== "ok") {
+    logVerdict(cwd, { kind: verdict, elapsedMs: Math.round(elapsedMs), exit: code, command: args.slice(0, 4).join(" ") });
   }
   return { verdict, elapsedMs, exitCode: code };
 }

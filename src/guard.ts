@@ -9,7 +9,8 @@
  * next command", so a guard exit 1 literally cancels the violating command.
  */
 
-import { firstBan, isSlow } from "./policy.ts";
+import { isSlow } from "./policy.ts";
+import { effectiveBans, logVerdict } from "./project-policy.ts";
 
 const urgent = (msg: string) => {
   process.stdout.write(
@@ -24,9 +25,10 @@ export function guard(commandLine: string): 0 | 1 {
   // Never guard our own internals (recursion) or bash builtins/benign noise.
   if (!commandLine || /^_2s|two-sec|print_doctrine_hint/.test(commandLine)) return 0;
 
-  const ban = firstBan(commandLine);
+  const ban = effectiveBans(process.cwd()).find((r) => r.test.test(commandLine));
   if (ban) {
     urgent(ban);
+    logVerdict(process.cwd(), { kind: ban.action, reason: ban.reason, command: commandLine.slice(0, 120) });
     if (ban.action === "cancel") {
       process.stderr.write(`[two-sec guard] CANCELLED: ${ban.reason}\n`);
       return 1;

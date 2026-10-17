@@ -29,6 +29,32 @@ export function isSlow(bin: string, sub: string): boolean {
   return subs.has(sub);
 }
 
+/**
+ * Per-command deadline overrides (seconds). Slow-but-bounded tools that walk a
+ * large tree legitimately need more than the 2s default; declare them here so
+ * BOTH the runner (which enforces) and the guard (which routes/advises) read
+ * one table. This is the first-class way to widen a window — never an abort.
+ */
+export const DEADLINE_BUMPS: Record<string, number> = {
+  glob: 10,
+  find: 10,
+  "ffs_glob": 10,
+  "ffs_find": 10,
+  "ffs_index": 10,
+};
+
+/** Resolve the effective deadline for `args`, honoring per-command bumps. */
+export function deadlineFor(args: string[], baseS = 2.0): number {
+  const bin = String(args[0] ?? "");
+  if (bin === "ffs" || bin.endsWith("/ffs")) {
+    // catch the tree-walking reader subcommands and auto-widen their window
+    const sub = String(args[1] ?? "");
+    if (sub === "glob" || sub === "find" || sub === "index") return 10;
+    return DEADLINE_BUMPS[`ffs_${sub}`] ?? baseS;
+  }
+  return DEADLINE_BUMPS[bin] ?? baseS;
+}
+
 /** Truncation / swallow patterns — BANNED. Guard cancels with an urgent fix. */
 export interface BanRule {
   test: RegExp;
