@@ -1,22 +1,25 @@
-# two-sec bash glue — GENERATED from ranch/two-sec/src/policy.ts (bun SSOT).
-# Regenerate: bun run ranch/two-sec/src/cli.ts init > ranch/two-sec/shim.sh
-_2S_GUARD_SRC="/home/toxic/estate/ranch/two-sec/src/init.ts"
+# kairos bash glue — GENERATED from ranch/kairos/src/policy.ts (bun SSOT).
+# Regenerate: bun run ranch/kairos/src/cli.ts init > ranch/kairos/shim.sh
+_2S_GUARD_SRC="/home/toxic/estate/ranch/kairos/src/init.ts"
 RF_BIN="$HOME/estate/bin/run-fast"
-[ -x "$RF_BIN" ] || RF_BIN="$HOME/estate/ranch/two-sec/bin/two-sec"
+[ -x "$RF_BIN" ] || RF_BIN="$HOME/estate/ranch/kairos/bin/kairos"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="${RF_QUIET:-1}"
 export RF_DEADLINE="${RF_DEADLINE:-2.0}"
 
 _2s_urgent() {
-  echo "════ [two-sec GUARD — URGENT, CANCELLED] ════"
+  echo "════ [kairos GUARD — URGENT, CANCELLED] ════"
   echo "  $1"
   echo "  MUST DO: $2"
 }
 
 _2s_slow() { case "$1:$2" in
     git:push|git:pull|git:fetch|git:clone|git:merge|git:rebase|git:submodule|git:gc|git:filter-repo) return 0 ;;
-    bun:install|bun:add|bun:remove|bun:update|bun:test|bun:build|bun:publish|bun:link|bun:run) return 0 ;;
-    npm:install|npm:ci|npm:update|npm:build|npm:test|npm:publish) return 0 ;;
+    bun:install|bun:add|bun:remove|bun:update|bun:test|bun:build|bun:typecheck|bun:publish|bun:link|bun:run) return 0 ;;
+    npm:install|npm:ci|npm:update|npm:build|npm:test|npm:typecheck|npm:publish) return 0 ;;
+    tsgo:noEmit|tsgo:check|tsgo:typecheck) return 0 ;;
+    turbo:typecheck|turbo:build|turbo:test|turbo:run) return 0 ;;
+    tsc:noEmit|tsc:build) return 0 ;;
     pnpm:add|pnpm:install|pnpm:update) return 0 ;;
     pip:install) return 0 ;;
     pip3:install) return 0 ;;
