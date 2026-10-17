@@ -95,11 +95,38 @@ function genId(name?: string) {
   return "rf-" + crypto.randomUUID().slice(0, 8);
 }
 
+// Banned first-arg: these have a faster/correct replacement that run-fast NOT interposes for.
+// The point of run-fast is to CORRECT you before you run something slow — so we hard-block these
+// and tell you the right tool.
 const bannedAsFirst: Set<string> = new Set([
-  "tail", "head", "grep", "sed", "awk", "cut", "sort", "uniq", "find",
-  "echo", "printf", "wc", "less", "more", "xxd", "hexdump", "od", "base64",
-  "tee", "tr", "paste", "join",
+  "find", "head", "tail", "cat", "grep", "rg", "sed", "awk", "cut", "sort", "uniq",
+  "wc", "less", "more", "xxd", "hexdump", "od", "base64", "tee", "tr", "paste", "join",
 ]);
+
+const REPLACEMENTS: Record<string, string> = {
+  find: "fd (fast, gitignore-aware) or ffs find",
+  grep: "rg (fast, respects .gitignore) or ffs grep",
+  rg: "ffs grep",
+  cat: "(use the read tool: full file, never truncated)",
+  head: "(read tool reads full file — 1M context, no truncation)",
+  tail: "(read tool reads full file — no truncation)",
+  sed: "ast-grep (tree-sitter structural rewrite) — never sed",
+  awk: "ast-grep or the read tool",
+  cut: "persist full output; slice only in code, never in transcripts",
+  sort: "do the sort in code; don't clobber the stream",
+  uniq: "do the dedup in code; don't clobber the stream",
+  wc: "(use ffs stats / the read tool)",
+  less: "(use the read tool)",
+  more: "(use the read tool)",
+  xxd: "(decode in code)",
+  hexdump: "(decode in code)",
+  od: "(decode in code)",
+  base64: "(decode in code)",
+  tee: "(persist full output to a run-fast session file instead)",
+  tr: "ast-grep for structural transform",
+  paste: "(do it in code)",
+  join: "(do it in code)",
+};
 
 async function streamReader(stream: ReadableStream<Uint8Array> | null, sink: { out: string; write: (t: string) => void }): Promise<void> {
   if (!stream) return;
@@ -135,18 +162,25 @@ function parseArgs(args: string[]): {
     cmd.push(a);
   }
 
+  // Shell-compatible mode: run-fast -lc '<command>'  (kilo/opencode bash tool)
+  // When invoked as a shell, everything up to -c / -lc is the shell name and the
+  // trailing arg is the command string to deadline-wrap through a real bash.
+  const dashIdx = cmd.findIndex((c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login");
+  if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
+    const commandStr = cmd.slice(dashIdx + 1).join(" ");
+    cmd = ["/bin/bash", "-lc", commandStr];
+  }
+
   // Enforce banned commands as the FIRST arg.
   const base = cmd[0]?.split("/").pop() ?? "";
   if (bannedAsFirst.has(base)) {
+    const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
     scold(
-      `Forbidden command '${base}'. You ran a raw CLI tool directly.\n` +
-      `  - ${base} is EXPLICITLY BANNED. Do NOT use it.\n` +
-      `  - Use the canonical estate tools instead:\n` +
-      `      ffs find <needle>      # find files\n` +
-      `      ffs grep <regex>       # search content\n` +
-      `      ffs read <path>        # read files (budget-aware)\n` +
-      `      ffs outline <path>     # sketch structure\n` +
-      `  - And wrap the command in run-fast:  run-fast ffs find <needle>\n` +
+      `Forbidden command '${base}'. run-fast BLOCKS it and CORRECTS you.\n` +
+      `  - ${base} is banned: it is slow, or it truncates/destroys output.\n` +
+      `  - USE INSTEAD:  ${replace}\n` +
+      `  - This is the whole point: run-fast intercepts BEFORE you waste time.\n` +
+      `  - Accept the correction and rerun with the right tool.\n` +
       `  Rerun correctly. Now.`);
     process.exit(126);
   }
@@ -163,7 +197,7 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
   const t0 = performance.now();
   const id = genId(p.sessionName);
 
-  process.stdout.write(`[run-fast] session=${id}\n`);
+  process.stderr.write(`[run-fast] session=${id}\n`);
 
   const sink: { out: string; write: (t: string) => void } = { out: "", write: (t) => process.stdout.write(t) };
   const spawnC = (c: string[], e: Record<string, string>, d: string) =>
