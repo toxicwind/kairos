@@ -7,8 +7,11 @@
 /** Subcommands that routinely exceed 2s → route through the deadline runner. */
 export const SLOW_ROUTES: Record<string, Set<string>> = {
   git: new Set(["push", "pull", "fetch", "clone", "merge", "rebase", "submodule", "gc", "filter-repo"]),
-  bun: new Set(["install", "add", "remove", "update", "test", "build", "publish", "link", "run"]),
-  npm: new Set(["install", "ci", "update", "build", "test", "publish"]),
+  bun: new Set(["install", "add", "remove", "update", "test", "build", "typecheck", "publish", "link", "run"]),
+  npm: new Set(["install", "ci", "update", "build", "test", "typecheck", "publish"]),
+  tsgo: new Set(["noEmit", "check", "typecheck"]),
+  turbo: new Set(["typecheck", "build", "test", "run"]),
+  tsc: new Set(["noEmit", "build"]),
   pnpm: new Set(["add", "install", "update"]),
   pip: new Set(["install"]),
   pip3: new Set(["install"]),
@@ -41,16 +44,38 @@ export const DEADLINE_BUMPS: Record<string, number> = {
   "ffs_glob": 10,
   "ffs_find": 10,
   "ffs_index": 10,
+  typecheck: 180,
+  tsgo: 180,
+  turbo: 180,
+  tsc: 180,
+  status: 20, // git status (incl --ignored) walks huge trees on the estate
 };
+
+/** Resolve the effective subcommand, skipping git-style flags and their values (`-C path`, `--help`). */
+function effectiveSub(args: string[]): string {
+  let i = 1;
+  while (i < args.length) {
+    const a = args[i];
+    if (a === "-C" || a === "--git-dir" || a === "--work-tree") { i += 2; continue; } // flag + value
+    if (a && a.startsWith("-")) { i += 1; continue; } // other flag
+    return a;
+  }
+  return "";
+}
 
 /** Resolve the effective deadline for `args`, honoring per-command bumps. */
 export function deadlineFor(args: string[], baseS = 2.0): number {
   const bin = String(args[0] ?? "");
+  const sub = effectiveSub(args);
   if (bin === "ffs" || bin.endsWith("/ffs")) {
     // catch the tree-walking reader subcommands and auto-widen their window
-    const sub = String(args[1] ?? "");
     if (sub === "glob" || sub === "find" || sub === "index") return 10;
     return DEADLINE_BUMPS[`ffs_${sub}`] ?? baseS;
+  }
+  // `bun typecheck` / `npm typecheck` / `tsgo --noEmit` / `git status`: widen by subcommand too.
+  if (bin === "git" && sub === "status") return DEADLINE_BUMPS.status;
+  if (sub === "typecheck" || sub === "noEmit" || sub === "check" || sub === "build") {
+    return DEADLINE_BUMPS[sub] ?? DEADLINE_BUMPS[bin] ?? baseS;
   }
   return DEADLINE_BUMPS[bin] ?? baseS;
 }
