@@ -43,10 +43,10 @@ const urgentBreach = (cmd: string[], elapsedS: number) => {
     `  '${cmd.slice(0, 8).join(" ")}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
     `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
     `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +
-    `  1. ast-grep (sg)     sg -p '<pattern>'    # structural AST search — tree-sitter exact\n` +
-    `     bm25 <query>                            # semantic recall over symbols/comments\n` +
-    `  2. ffi flow <symbol> / ffs impact <symbol> # def+body+callees + blast radius\n` +
-    `  3. forge borrow '<what it does>'           # external faster prior art\n` +
+    `  1. ast-grep <pattern>                 # tree-sitter structural AST search (exact)\n` +
+    `     bm25 <query>                       # semantic recall over symbols/comments\n` +
+    `  2. ffs flow <symbol> / ffs impact <symbol>  # def+body+callees + blast radius\n` +
+    `  3. forge borrow '<what it does>'      # external faster prior art\n` +
     `  4. OR background it (background_process) — never wait longer.\n` +
     `  DO NOT retry the same slow command. A breach without a raced fix = defect.\n` +
     `═══════════════════════════════════════\n`,

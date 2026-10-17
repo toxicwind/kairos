@@ -52,6 +52,13 @@ _2s_guard() {
 }
 
 set -o pipefail
+if [ -z "${_2S_TRAP_ARMED:-}" ]; then
+  export _2S_TRAP_ARMED=1
+  # notify-only trap: unwrapped binaries (echo, ls…) get ban notices;
+  # deterministic CANCEL happens inside the wrappers (extdebug can't cancel
+  # function traps on bash 5.3 — tested empirically).
+  trap '_2s_guard' DEBUG
+fi
 
 _2s_wrap() { # $1=bin, rest=args — guard-check then slow-route
   local b="$1"; shift
