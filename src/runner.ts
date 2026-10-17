@@ -19,7 +19,7 @@
  *   --id name            → session name
  */
 import { spawn } from "bun";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, openSync, writeSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { effectiveDeadline, logVerdict } from "./project-policy.ts";
 import { deadlineFor } from "./policy.ts";
@@ -250,6 +250,21 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
   const id = genId(p.sessionName);
   process.stderr.write(`[run-fast] session=${id}\n`);
 
+  // Live-persist sink: writes EVERY chunk to both stdout (live) and the session file
+  // (synchronous flush per chunk), so output is never buffered-and-lost and the
+  // transcript is always the full record even if the process is killed mid-stream.
+  const mkSink = () => {
+    mkdirSync(SESSION_DIR, { recursive: true });
+    const w = outPath(id);
+    let pending = "";
+    const flush = () => { if (pending) { const fd = openSync(w, "a"); try { writeSync(fd, pending, null, "utf8"); } finally { closeSync(fd); } pending = ""; } };
+    return {
+      write(t: string) { process.stdout.write(t); pending += t; flush(); },
+      close() { flush(); },
+    };
+  };
+  const sink = mkSink();
+
   // A truncation segment (head/tail/wc -l) rewrites into: run upstream fully, persist
   // to the session file, then display only the requested window with a pointer to full output.
   const isTrunc = (seg: string[]): "head" | "tail" | "wc" | null => {
@@ -279,6 +294,7 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
       clearTimeout(timer);
       const raw = buf.join("");
       await proc.exited;
+      sink.write(raw); // persist full upstream to the session file
       const lines = raw.split("\n");
       let win = lines;
       let note = "";
@@ -288,34 +304,31 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
       return { stdout: win.join("\n") + (note ? `\n${note}` : ""), exit: proc.exitCode ?? 1 };
     }
 
-    // No truncator: run the pipeline normally, stream as it produces.
+    // No truncator: run the pipeline normally, stream as it produces (live-persisted).
     if (segments.length === 1 && !segments[0].map((s) => s.split("/").pop()).filter(Boolean).some((b) => bannedAsFirst.has(b)) && segments[0][0] !== "/bin/bash") {
       const proc = spawn(segments[0], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
       const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
-      const sinkLocal: { out: string; write: (t: string) => void } = { out: "", write: (t) => process.stdout.write(t) };
-      await Promise.all([proc.exited, streamReader(proc.stdout, sinkLocal), streamReader(proc.stderr, () => {})]);
+      await Promise.all([proc.exited, streamReader(proc.stdout, sink), streamReader(proc.stderr, { out: "", write: () => {} })]);
       clearTimeout(timer);
-      return { stdout: sinkLocal.out, exit: proc.exitCode ?? 1 };
+      return { stdout: "", exit: proc.exitCode ?? 1 };
     }
 
-    // Multi-segment pipe / cached bash: run whole pipeline, stream out.
+    // Multi-segment pipe / cached bash: run whole pipeline, stream out (live-persisted).
     const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", segments.map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")).join(" | ")], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
     const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
-    const sinkLocal2: { out: string; write: (t: string) => void } = { out: "", write: (t) => process.stdout.write(t) };
-    await Promise.all([proc.exited, streamReader(proc.stdout, sinkLocal2), streamReader(proc.stderr, () => {})]);
+    await Promise.all([proc.exited, streamReader(proc.stdout, sink), streamReader(proc.stderr, { out: "", write: () => {} })]);
     clearTimeout(timer);
-    return { stdout: sinkLocal2.out, exit: proc.exitCode ?? 1 };
+    return { stdout: "", exit: proc.exitCode ?? 1 };
   };
 
   let exit = 0;
-  const fullOut: string[] = [];
   let i = 0;
   while (i < p.segments.length) {
     // Collect a | group.
     const group: string[][] = [p.segments[i]];
     while (i < p.segments.length - 1 && p.ops[i] === "|") { group.push(p.segments[i + 1]); i++; }
     const res = await runGroup(group);
-    if (res.stdout) { process.stdout.write(res.stdout + "\n"); fullOut.push(res.stdout); }
+    if (res.stdout) { process.stdout.write(`\n${res.stdout}\n`); sink.write(`\n${res.stdout}\n`); }
     exit = res.exit;
     // Handle the op that follows this group (if any).
     if (i < p.segments.length - 1) {
@@ -326,6 +339,7 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
       i++;
     }
   }
+  sink.close();
 
   const elapsedMs = performance.now() - t0;
   let verdict: RunResult["verdict"];
@@ -338,9 +352,8 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
     verdict = "ok";
   }
 
-  // Persist full combined output.
+  // Persist full combined output (sink already wrote incrementally; meta confirms done).
   writeMeta(id, { id, cmd: args.slice(0, 6).join(" "), startTime: t0, endTime: Date.now(), exitCode: exit, state: "done" });
-  writeFileSync(outPath(id), fullOut.join("\n"), "utf-8");
 
   if (!opts.quiet) process.stderr.write(`[two-sec ${verdict} ${((elapsedMs / 1000) || 0).toFixed(2)}s exit=${exit}] id=${id}\n`);
   if (verdict !== "ok") logVerdict(p.cwd, { kind: verdict, elapsedMs: Math.round(elapsedMs), exit, command: args.slice(0, 4).join(" ") });
