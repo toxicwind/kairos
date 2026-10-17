@@ -104,28 +104,45 @@ const bannedAsFirst: Set<string> = new Set([
 ]);
 
 const REPLACEMENTS: Record<string, string> = {
-  find: "fd (fast, gitignore-aware) or ffs find",
-  grep: "rg (fast, respects .gitignore) or ffs grep",
-  rg: "ffs grep",
-  cat: "(use the read tool: full file, never truncated)",
-  head: "(read tool reads full file — 1M context, no truncation)",
-  tail: "(read tool reads full file — no truncation)",
-  sed: "ast-grep (tree-sitter structural rewrite) — never sed",
-  awk: "ast-grep or the read tool",
-  cut: "persist full output; slice only in code, never in transcripts",
-  sort: "do the sort in code; don't clobber the stream",
-  uniq: "do the dedup in code; don't clobber the stream",
-  wc: "(use ffs stats / the read tool)",
-  less: "(use the read tool)",
-  more: "(use the read tool)",
-  xxd: "(decode in code)",
-  hexdump: "(decode in code)",
-  od: "(decode in code)",
-  base64: "(decode in code)",
-  tee: "(persist full output to a run-fast session file instead)",
-  tr: "ast-grep for structural transform",
-  paste: "(do it in code)",
-  join: "(do it in code)",
+  find: [
+    "fd <needle> <dir?>   # fast, gitignore-aware replacement for 'find'",
+    "   or: ffs find <needle> --root <dir>  # estate index",
+    "NEVER walk the whole disk: scope to a dir, or use the on-disk ffs index.",
+  ].join("\n      "),
+  grep: [
+    "rg <pattern> <dir?>  # fast, respects .gitignore",
+    "   or: ffs grep <regex> --root <dir> + --limit N  # index-backed, cheap",
+    "NEVER 'grep -r' a huge tree; prefer rg or the ffs index.",
+  ].join("\n      "),
+  rg: [
+    "ffs grep <regex> --root <dir>  # use the on-disk index instead of a fresh walk",
+    "   (rg is fine for scoped, single-dir searches).",
+  ].join("\n      "),
+  cat: "read <path> via the read tool — 1M context, budget-aware outline by default, never truncated.",
+  head: "read <path> via the read tool — reads the FULL file (1M context); there is NO reason to truncate.",
+  tail: "read <path> via the read tool — full tail is just the end of a full read.",
+  sed: [
+    "ast-grep scan -p '<pattern>' --rewrite '<replacement>' -l ts <dir>  # tree-sitter STRUCTURAL rewrite",
+    "   ast-grep works on syntax, not regex — it is the only safe in-place rewrite.",
+  ].join("\n      "),
+  awk: "ast-grep (structural) or the read tool; awk is a text destroyer you must not use.",
+  cut: "persist FULL output (run-fast session file); slice columns in code, never in the transcript.",
+  sort: "sort in code (JS/Python), not by clobbering the command stream with a pipeline.",
+  uniq: "dedupe in code; never pipe the raw stream through uniq.",
+  wc: "ffs stats or the read tool; never `| wc -l` to count (that truncates the evidence trail).",
+  less: "read the file with the read tool (paging in a pipe hides the full context you need).",
+  more: "read the file with the read tool.",
+  xxd: "hex-decode in the code you're debugging; never dump bytes into the transcript.",
+  hexdump: "hex-decode in code.",
+  od: "octal/decimal inspect in code.",
+  base64: "base64-decode in code; never shell out a decode that pollutes output.",
+  tee: [
+    "persist FULL output via run-fast's session file (run-fast <cmd> then run-fast logs <id>),",
+    "   or the tool's own --output/--outfile flag — never tee a transcript.",
+  ].join("\n      "),
+  tr: "ast-grep for structural transform; never a regex transliteration pipeline.",
+  paste: "do the column-join in code.",
+  join: "do the relation join in code.",
 };
 
 async function streamReader(stream: ReadableStream<Uint8Array> | null, sink: { out: string; write: (t: string) => void }): Promise<void> {
@@ -175,13 +192,8 @@ function parseArgs(args: string[]): {
   const base = cmd[0]?.split("/").pop() ?? "";
   if (bannedAsFirst.has(base)) {
     const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
-    scold(
-      `Forbidden command '${base}'. run-fast BLOCKS it and CORRECTS you.\n` +
-      `  - ${base} is banned: it is slow, or it truncates/destroys output.\n` +
-      `  - USE INSTEAD:  ${replace}\n` +
-      `  - This is the whole point: run-fast intercepts BEFORE you waste time.\n` +
-      `  - Accept the correction and rerun with the right tool.\n` +
-      `  Rerun correctly. Now.`);
+    // No lecture, no ask — the banned tool is simply refused and the replacement is commanded.
+    process.stdout.write(`[run-fast BLOCKED] '${base}' is banned. Run instead:\n  ${replace}\n`);
     process.exit(126);
   }
 
