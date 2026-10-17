@@ -103,6 +103,31 @@ const bannedAsFirst: Set<string> = new Set([
   "wc", "less", "more", "xxd", "hexdump", "od", "base64", "tee", "tr", "paste", "join",
 ]);
 
+const WHY: Record<string, string> = {
+  find: "walks the whole tree every time → O(entries), GB of stat calls. fd/ffs use gitignore + an index.",
+  grep: "ripgrep-fresh re-scan of a huge tree is wasteful when the ffs index already has the answer.",
+  rg: "you invoked it bare — route content search through ffs grep (index) or scope rg to a single dir.",
+  cat: "dumps a raw file into the transcript, flooding context. The read tool outlines/budgets.",
+  head: "truncates a file's evidence. You have 1M context — read the FULL thing.",
+  tail: "you cut the head off the evidence. Read the full file.",
+  sed: "regex mangle on your source. ast-grep rewrites STRUCTURALLY on syntax, which is the only safe rewrite.",
+  awk: "text-destroyer in a shell one-liner. Do the parse in code, or use ast-grep.",
+  cut: "you sliced away columns you'll want 3 lines later. Persist full output.",
+  sort: "stream-clobbering pipeline. Sort in code, keep the raw evidence.",
+  uniq: "collapses the record you'll need. Dedup in code, keep the trail.",
+  wc: "counting lines is a signal you should read the file, not truncate it.",
+  less: "paging hides the full context in a pipe. Read the file.",
+  more: "same as less — read the file.",
+  xxd: "hex dump pollutes the transcript. Decode the bytes in your debugger.",
+  hexdump: "byte-dump noise. Decode in code.",
+  od: "octal/float inspect noise. Inspect in code.",
+  base64: "obfuscates data in the transcript. Decode in code.",
+  tee: "copies output you then inspect only partially. run-fast sessions persist full output.",
+  tr: "regex transliterate mangling. Use ast-grep for structural transform.",
+  paste: "column-join in a shell is a fragile hack. Do it in code.",
+  join: "relation-join in shell is error-prone. Do it in code.",
+};
+
 const REPLACEMENTS: Record<string, string> = {
   find: [
     "fd <needle> <dir?>   # fast, gitignore-aware replacement for 'find'",
@@ -188,12 +213,18 @@ function parseArgs(args: string[]): {
     cmd = ["/bin/bash", "-lc", commandStr];
   }
 
-  // Enforce banned commands as the FIRST arg.
+  // Enforce banned commands as the FIRST arg. Hard, immediate, directive.
   const base = cmd[0]?.split("/").pop() ?? "";
   if (bannedAsFirst.has(base)) {
     const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
-    // No lecture, no ask — the banned tool is simply refused and the replacement is commanded.
-    process.stdout.write(`[run-fast BLOCKED] '${base}' is banned. Run instead:\n  ${replace}\n`);
+    process.stderr.write(
+      `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it.\n` +
+      `\n  WHY it's banned:\n` +
+      `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
+      `\n  DO THIS INSTEAD (run it now):\n` +
+      `  ${replace}\n` +
+      `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
+    );
     process.exit(126);
   }
 
