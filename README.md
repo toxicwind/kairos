@@ -8,11 +8,13 @@
 
 # kairos (καιρός)
 
-*The opportune moment* — the 2-second rule, first-class: every command an agent
-runs gets a **2.0s hard deadline**; breaching = FAILED, and the trigger to
-**race a faster alternative** (never wait longer). A command policy guard
-cancels error-swallowing and output-destroying commands with an **urgent,
-AST-driven must-do notice** the agent sees inline on stdout.
+_The opportune moment_ — the 2-second rule, first-class: every command an agent
+runs gets a deadline (default **2.0s**) that breaching = FAILED, the trigger to
+**race a faster alternative** (never wait longer). The deadline and hard-cancel
+behavior are **project-overridable** via `.two-sec/policy.json`, so the guard
+can be tamed for long autonomous runs instead of fighting the agent. A command
+policy guard cancels error-swallowing and output-destroying commands with an
+**urgent, AST-driven must-do notice** the agent sees inline on stdout.
 
 Logic lives in Bun (`policy.ts` → `guard.ts` → `runner.ts`); bash is glue
 only — a GENERATED static shim (`shim.sh`, zero bun spawns at runtime).
@@ -39,15 +41,44 @@ flowchart LR
 - **Hard blocks** — banned tools (`find`→`fd`, `cat`→read tool, `sed`→ast-grep,
   `head/tail`, …) are refused with the WHY + the exact replacement to run.
 - **Deadline bumps** — legitimately-slow-but-necessary commands get wider
-  windows: `typecheck`/`tsgo`/`turbo` 180s, `git status` 20s. Base is 2.0s.
+  windows: `typecheck`/`tsgo`/`turbo` 180s, `git status` 20s, `ffs glob/find`
+  10s. Base is 2.0s unless a project policy widens it.
+
+## Maximalize for autonomous LLM use
+
+The guard is disciplined by default, not punitive. Configure any checkout with
+a `.two-sec/policy.json` (walked up from cwd):
+
+```json
+{
+  "deadlineS": 60,
+  "disableBans": [
+    "pipeline truncation (head/tail/wc)",
+    "'2>&1' merges stderr into stdout",
+    "output discarded to /dev/null",
+    "byte/slice truncation in output",
+    "blocking sleep"
+  ]
+}
+```
+
+- `deadlineS` widens the kill timer **and** (post-10-20 fix) the breach
+  **verdict**, so long work isn't trench-scolded for crossing 2.0s.
+- `disableBans` removes friction rules by `reason`; `extraBans` adds them.
+- `.two-sec/ignore` — regex entries that never fire.
+- `run-fast --deadline SECONDS <cmd>` for a one-off wider window.
+- Keep `| true` (exit-code-swallowing) banned — it removes a real safety
+  property.
+
+Full guide: [`docs/GUARD_GUIDE.md`](docs/GUARD_GUIDE.md).
 
 ## Policy classes
 
-| Action | Patterns | Behavior |
-| --- | --- | --- |
-| **cancel** | `\| true`, `sleep N` | blocked, exit 126, urgent fix notice |
-| **rewrite** | `>/dev/null`, `2>&1`, `\| head/tail/wc`, `head/tail -c` | full output persisted, window shown |
-| **slow-route** | git push/fetch/clone, bun install/test/typecheck, npm ci, cargo/go builds, gitleaks, make… | deadline runner with bumped window |
+| Action         | Patterns                                                                                   | Behavior                             |
+| -------------- | ------------------------------------------------------------------------------------------ | ------------------------------------ |
+| **cancel**     | `\| true`, `sleep N`                                                                       | blocked, exit 126, urgent fix notice |
+| **rewrite**    | `>/dev/null`, `2>&1`, `\| head/tail/wc`, `head/tail -c`                                    | full output persisted, window shown  |
+| **slow-route** | git push/fetch/clone, bun install/test/typecheck, npm ci, cargo/go builds, gitleaks, make… | deadline runner with bumped window   |
 
 ## The breach = AST-find-faster contract
 
