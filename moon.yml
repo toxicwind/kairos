@@ -1,0 +1,26 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+# kairos — the 2-second command guard: deadline runner, policy guard,
+# truncation rewriter, and the generated bash shim.
+language: "typescript"
+stack: "backend"
+tags:
+  - "ranch"
+  - "component"
+  - "guard"
+tasks:
+  test:
+    command: "bun test"
+    options:
+      cache: false
+    description: "runner + policy + guard behavior tests"
+  shim:
+    command: 'bash -c "bun run src/cli.ts init > shim.sh"'
+    options:
+      cache: false
+    description: "regenerate the generated bash glue from policy.ts SSOT"
+  validate:
+    command: "bun run src/cli.ts --version"
+    options:
+      cache: false
+    description: "CLI smoke: kairos/run-fast multiplexer loads"

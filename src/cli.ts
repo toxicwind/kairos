@@ -3,6 +3,8 @@
  *
  * Subcommands (when called as run-fast or kairos):
  *   run <cmd…>          spawn session, stream output
+ *   detach <cmd…>       spawn in background, return id immediately (non-blocking)
+ *   bg <cmd…>           alias for detach
  *   attach <id>         attach to session
  *   logs [id]           session output
  *   list                list sessions
@@ -14,7 +16,7 @@
  *   route <bin sub>     slow/fast detection
  *   init                emit bash shim
  */
-import { runSession, attachSession, logsSession, listSessions, purgeSessions, cancelSession } from "./runner.ts";
+import { runSession, attachSession, logsSession, listSessions, purgeSessions, cancelSession, runDetached } from "./runner.ts";
 import { guard } from "./guard.ts";
 import { isSlow } from "./policy.ts";
 import { emitBashShim } from "./init.ts";
@@ -42,6 +44,10 @@ switch (cmd) {
   case "cancel":
     await cancelSession(rest[0] ?? "");
     break;
+  case "detach":
+  case "bg":
+    await runDetached(rest);
+    break;
   case "guard":
     process.exit(guard(rest.join(" ")));
     break;
@@ -52,6 +58,6 @@ switch (cmd) {
     process.stdout.write(emitBashShim());
     break;
   default:
-    process.stderr.write(`run-fast: unknown command '${cmd}' (run|attach|logs|list|purge|cancel|guard|route|init)\n`);
+    process.stderr.write(`run-fast: unknown command '${cmd}' (run|detach|bg|attach|logs|list|purge|cancel|guard|route|init)\n`);
     process.exit(2);
 }

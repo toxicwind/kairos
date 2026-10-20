@@ -32,7 +32,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { effectiveDeadline, logVerdict } from "./project-policy.ts";
-import { deadlineFor } from "./policy.ts";
+import { deadlineFor, shouldDetach } from "./policy.ts";
 
 const SESSION_DIR = join(process.env.HOME || "/tmp", ".run-fast");
 const HARD_DEADLINE = 2.0; // seconds. NON-NEGOTIABLE.
@@ -49,10 +49,33 @@ const scold = (msg: string) => {
   );
 };
 
+/** Redact obvious secrets from a command line before it reaches a notice/log. */
+const REDACT = "*****";
+
+export function redactCmd(args: string[]): string {
+  return args
+    .map((a) => {
+      // KEY=value or api_key=value / token=… / secret=… / password=… / _key=…
+      const kv = /^([A-Za-z_][A-Za-z0-9_-]*(?:api[_k]ey|token|secret|password|_key)=)(.+)$/i.exec(a);
+      if (kv) return `${kv[1]}${REDACT}`;
+      // Header-style: Authorization: Bearer … / X-API-Key: … / x-api-key: …
+      const hdr = /^(Authorization|Bearer|X-API-Key|x-api-key)\s*:\s*\S.+$/i.exec(a);
+      if (hdr) return a.replace(/^(.*?)(:|Bearer)\s*\S.+$/i, `$1$2 ${REDACT}`);
+      // Bare atr_/sk- style key tokens (Atria, OpenAI, etc.)
+      if (/^(atr|sk|ghp|gho|gsk|key)_[A-Za-z0-9]+$/.test(a)) return REDACT;
+      return a;
+    })
+    .slice(0, 8)
+    .join(" ")
+    // Sweep any leftovers anywhere in the joined line.
+    .replace(/Bearer\s+\S+/gi, `Bearer ${REDACT}`)
+    .replace(/(api_key|apiKey|token|secret|password)=[^\s"']+/gi, `$1=${REDACT}`);
+}
+
 const urgentBreach = (cmd: string[], elapsedS: number) => {
   process.stdout.write(
     `\n════ [kairos BREACH — URGENT, MUST DO] ════\n` +
-      `  '${cmd.slice(0, 8).join(" ")}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
+      `  '${redactCmd(cmd)}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
       `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
       `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +
       `  1. ast-grep run -p '<pattern>'       # tree-sitter structural AST search (exact)\n` +
@@ -353,6 +376,17 @@ export async function runSession(
   opts: { quiet?: boolean } = {},
 ): Promise<RunResult> {
   const p = parseArgs(args);
+
+  // AUTO-DETACH (fix, don't scold): commands that are inherently slow/network
+  // (git push/pull/fetch/clone/merge/rebase, gh *, make) never block the agent.
+  // We hand them to the background runner and return a session id immediately;
+  // the agent follows up with attach/logs/cancel. This replaces the 2s-kill +
+  // breach+retry worst case with a sub-ms handoff.
+  if (shouldDetach(p.segments[0] ?? [])) {
+    await runDetached(args, opts);
+    return { verdict: "ok", elapsedMs: 0, exitCode: 0 };
+  }
+
   const t0 = performance.now();
   const id = genId(p.sessionName);
   process.stderr.write(`[run-fast] session=${id}\n`);
@@ -691,4 +725,90 @@ export async function cancelSession(id: string) {
     }
   } catch {}
   process.stderr.write(`[run-fast] cancelled ${id}\n`);
+}
+
+/**
+ * runDetached — cutting-edge non-blocking mode: spawn a slow command in the
+ * background, attach it to a session file, and return the id to the caller
+ * IMMEDIATELY (sub-ms), so the LLM turn never blocks on a network/build/inflight
+ * command. Follow up with `kairos attach|logs|cancel <id>`.
+ *
+ * This is the real latency win over the 2s kill: instead of CANCELLING a slow
+ * command (wasting the call and forcing a retry), we hand it off and let the
+ * agent keep reasoning. The session is observable, cancellable, and its output
+ * is persisted exactly like a foreground run.
+ */
+export async function runDetached(
+  args: string[],
+  opts: { quiet?: boolean } = {},
+): Promise<{ id: string }> {
+  const p = parseArgs(args);
+  const id = genId(p.sessionName);
+  mkdirSync(SESSION_DIR, { recursive: true });
+
+  const cmd =
+    p.segments.length > 0
+      ? p.segments
+          .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
+          .join(" ")
+      : "true";
+
+  // Print the session id FIRST so an LLM/tool sees it before anything else.
+  process.stderr.write(`[run-fast] session=${id} (detached)\n`);
+  process.stderr.write(
+    `[run-fast] follow: kairos attach ${id} | kairos logs ${id} | kairos cancel ${id}\n`,
+  );
+
+  writeMeta(id, {
+    id,
+    cmd: cmd.slice(0, 120),
+    startTime: Date.now(),
+    endTime: null,
+    exitCode: null,
+    state: "running",
+  });
+
+  const out = outPath(id);
+
+  // Spawn fully detached: separate process group, output to the session file.
+  // `null` cwd => inherit; env inherited so credentials/SSH agent reach the child.
+  const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", cmd], {
+    cwd: p.cwd || process.cwd(),
+    env: p.env as any,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
+  });
+  const fd = openSync(out, "a");
+  const tee = (buf: Uint8Array) => {
+    try {
+      writeSync(fd, buf, null, "utf8");
+      if (!opts.quiet) process.stderr.write(`[run-fast ${id}] ` + new TextDecoder().decode(buf));
+    } catch {}
+  };
+  // Canonical Bun pattern (borrowed from bun docs): Subprocess.stdout is a
+  // ReadableStream, which is natively async-iterable. No cast, no .forEach.
+  const drain = async (rs: ReadableStream<Uint8Array> | null) => {
+    if (!rs) return;
+    for await (const chunk of rs) tee(chunk);
+  };
+  drain(proc.stdout as any).catch(() => {});
+  drain(proc.stderr as any).catch(() => {});
+  proc.unref();
+
+  proc.exited.then((code) => {
+    try {
+      closeSync(fd);
+    } catch {}
+    writeMeta(id, {
+      id,
+      cmd: cmd.slice(0, 120),
+      startTime: Date.now(),
+      endTime: Date.now(),
+      exitCode: code ?? 1,
+      state: "done",
+    });
+    process.stderr.write(`[run-fast] done exit=${code} id=${id}\n`);
+  });
+
+  return { id };
 }

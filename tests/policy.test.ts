@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { firstBan, isSlow } from "../src/policy.ts";
+import { firstBan, isSlow, shouldDetach, detachDeadline, deadlineFor } from "../src/policy.ts";
 import { guard } from "../src/guard.ts";
 
 describe("policy", () => {
@@ -31,5 +31,29 @@ describe("policy", () => {
   test("guard ignores its own internals", () => {
     expect(guard("_2s_slow git push")).toBe(0);
     expect(guard("")).toBe(0);
+  });
+  test("auto-detach network/inherently-slow ops (fix, don't scold)", () => {
+    expect(shouldDetach(["git", "push", "origin", "main"])).toBe(true);
+    expect(shouldDetach(["git", "pull"])).toBe(true);
+    expect(shouldDetach(["git", "clone", "repo"])).toBe(true);
+    expect(shouldDetach(["git", "merge", "branch"])).toBe(true);
+    expect(shouldDetach(["git", "rebase", "main"])).toBe(true);
+    expect(shouldDetach(["gh", "pr", "create"])).toBe(true);
+    expect(shouldDetach(["make"] as string[])).toBe(true);
+  });
+  test("fast/local commands stay foreground (not detached)", () => {
+    expect(shouldDetach(["git", "status", "--porcelain"])).toBe(false);
+    expect(shouldDetach(["bun", "test"])).toBe(false);
+    expect(shouldDetach(["ffs", "grep", "x"])).toBe(false);
+    expect(shouldDetach([])).toBe(false);
+  });
+  test("git network ops get a generous deadline (not the 2s base)", () => {
+    expect(deadlineFor(["git", "push"], 2.0)).toBe(600);
+    expect(deadlineFor(["git", "pull"], 2.0)).toBe(600);
+    expect(deadlineFor(["git", "status"], 2.0)).toBe(20);
+    expect(deadlineFor(["bun", "test"], 2.0)).toBe(2.0);
+  });
+  test("detachDeadline ceiling", () => {
+    expect(detachDeadline(["git", "push"])).toBe(600);
   });
 });

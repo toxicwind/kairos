@@ -83,6 +83,15 @@ export const DEADLINE_BUMPS: Record<string, number> = {
   tsc: 180,
   status: 20, // git status (incl --ignored) walks huge trees on the estate
   gh: 120, // gh repo/pr/release/api/issue/search — one-shot GitHub ops (network)
+  // git network ops — auto-detached by the runner (shouldDetach), so this is the
+  // safety-net kill window for a wedged detached push/merge, not a blocking wait.
+  "git:push": 600,
+  "git:pull": 600,
+  "git:fetch": 600,
+  "git:clone": 600,
+  "git:merge": 600,
+  "git:rebase": 600,
+  "git:submodule": 600,
 };
 
 /** Resolve the effective subcommand, skipping git-style flags and their values (`-C path`, `--help`). */
@@ -114,6 +123,10 @@ export function deadlineFor(args: string[], baseS = 2.0): number {
   }
   // `bun typecheck` / `npm typecheck` / `tsgo --noEmit` / `git status`: widen by subcommand too.
   if (bin === "git" && sub === "status") return DEADLINE_BUMPS.status;
+  // Inherently network / long-inflight commands: give a generous real window so
+  // they are not killed at the 2s base (they are auto-detached in the runner).
+  const network = DEADLINE_BUMPS[`${bin}:${sub}`];
+  if (network !== undefined) return network;
   if (
     sub === "typecheck" ||
     sub === "noEmit" ||
@@ -123,6 +136,38 @@ export function deadlineFor(args: string[], baseS = 2.0): number {
     return DEADLINE_BUMPS[sub] ?? DEADLINE_BUMPS[bin] ?? baseS;
   }
   return DEADLINE_BUMPS[bin] ?? baseS;
+}
+
+/**
+ * shouldDetach — commands that are inherently slow (network round-trips, big
+ * clones, long pushes) should NOT block the agent. The runner spawns them in
+ * the background and returns the session id immediately; the agent follows up
+ * with `kairos logs/attach/cancel`. This replaces "2s kill + retry" — the old
+ * worst-case for a legitimately slow command — with a sub-ms handoff.
+ *
+ * The deadline table stays as a safety net (a detached run still gets cancelled
+ * at its real window if something wedges), but the default for these is: fix it,
+ * don't scold. Return a deadline (seconds) or undefined to run foreground.
+ */
+const DETACH_DEADLINE_S = 600; // 10 min hard ceiling for a detached network op
+
+export function shouldDetach(args: string[] = []): boolean {
+  if (!args || args.length === 0) return false;
+  const bin = String(args[0] ?? "");
+  const sub = effectiveSub(args);
+  if (bin === "git") {
+    return ["push", "pull", "fetch", "clone", "merge", "rebase", "submodule"].includes(sub);
+  }
+  if (bin === "gh") {
+    return ["repo", "pr", "release", "api"].includes(sub);
+  }
+  if (bin === "make") return true;
+  return false;
+}
+
+export function detachDeadline(args: string[]): number {
+  void shouldDetach(args);
+  return DETACH_DEADLINE_S;
 }
 
 /** Truncation / swallow patterns — BANNED. Guard cancels with an urgent fix. */
