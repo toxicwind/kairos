@@ -19,7 +19,17 @@
  *   --id name            → session name
  */
 import { spawn } from "bun";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, openSync, writeSync, closeSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  openSync,
+  writeSync,
+  closeSync,
+} from "node:fs";
 import { join } from "node:path";
 import { effectiveDeadline, logVerdict } from "./project-policy.ts";
 import { deadlineFor } from "./policy.ts";
@@ -34,60 +44,91 @@ export interface RunResult {
 }
 
 const scold = (msg: string) => {
-  process.stderr.write(`\n  ╔══════════════════════════════════════════════════════════════╗\n  ║                 ⚠ RUN-FAST RULE VIOLATION ⚠                    ║\n  ╚══════════════════════════════════════════════════════════════╝\n  ${msg}\n\n`);
+  process.stderr.write(
+    `\n  ╔══════════════════════════════════════════════════════════════╗\n  ║                 ⚠ RUN-FAST RULE VIOLATION ⚠                    ║\n  ╚══════════════════════════════════════════════════════════════╝\n  ${msg}\n\n`,
+  );
 };
 
 const urgentBreach = (cmd: string[], elapsedS: number) => {
   process.stdout.write(
     `\n════ [kairos BREACH — URGENT, MUST DO] ════\n` +
-    `  '${cmd.slice(0, 8).join(" ")}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
-    `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
-    `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +
-    `  1. ast-grep run -p '<pattern>'       # tree-sitter structural AST search (exact)\n` +
-    `     bm25 <query>                      # semantic recall over symbols/comments\n` +
-    `  2. ffs flow <symbol> / ffs impact <symbol>  # def+body+callees + blast radius\n` +
-    `  3. forge borrow '<what it does>'     # external faster prior art\n` +
-    `  4. OR background it (background_process) — never wait longer.\n` +
-    `  DO NOT retry the same slow command. A breach without a raced fix = defect.\n` +
-    `═══════════════════════════════════════\n`,
+      `  '${cmd.slice(0, 8).join(" ")}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
+      `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
+      `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +
+      `  1. ast-grep run -p '<pattern>'       # tree-sitter structural AST search (exact)\n` +
+      `     bm25 <query>                      # semantic recall over symbols/comments\n` +
+      `  2. ffs flow <symbol> / ffs impact <symbol>  # def+body+callees + blast radius\n` +
+      `  3. forge borrow '<what it does>'     # external faster prior art\n` +
+      `  4. OR background it (background_process) — never wait longer.\n` +
+      `  DO NOT retry the same slow command. A breach without a raced fix = defect.\n` +
+      `═══════════════════════════════════════\n`,
   );
 };
 
 const scoldNotRunFast = (extra: string) => {
   scold(
     `You are NOT using run-fast for every command. This is the 2-second rule.\n` +
-    `  EVERY command MUST go through run-fast:  run-fast <cmd…>\n` +
-    `  ${extra}\n` +
-    `  If you used a bare tool (bash/read/grep/glob/write) without run-fast, that is a\n` +
-    `  violation. The ONLY exempt commands are git push/commit (explicit request) and\n` +
-    `  ffs read (budget-aware code reading), and even those should prefer run-fast.\n` +
-    `  Rerun this through:  run-fast <the same command>`);
+      `  EVERY command MUST go through run-fast:  run-fast <cmd…>\n` +
+      `  ${extra}\n` +
+      `  If you used a bare tool (bash/read/grep/glob/write) without run-fast, that is a\n` +
+      `  violation. The ONLY exempt commands are git push/commit (explicit request) and\n` +
+      `  ffs read (budget-aware code reading), and even those should prefer run-fast.\n` +
+      `  Rerun this through:  run-fast <the same command>`,
+  );
 };
 
 // ── Session store ──
 
-function metaPath(id: string) { return join(SESSION_DIR, `${id}.json`); }
-function outPath(id: string) { return join(SESSION_DIR, `${id}.out`); }
+function metaPath(id: string) {
+  return join(SESSION_DIR, `${id}.json`);
+}
+function outPath(id: string) {
+  return join(SESSION_DIR, `${id}.out`);
+}
 
-function getSessions(): { id: string; cmd: string; startTime: number; endTime: number | null; exitCode: number | null; state: "running" | "done"; }[] {
+function getSessions(): {
+  id: string;
+  cmd: string;
+  startTime: number;
+  endTime: number | null;
+  exitCode: number | null;
+  state: "running" | "done";
+}[] {
   if (!existsSync(SESSION_DIR)) return [];
   return readdirSync(SESSION_DIR)
-    .filter(f => f.endsWith(".json"))
-    .map(f => JSON.parse(readFileSync(join(SESSION_DIR, f), "utf-8")))
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(join(SESSION_DIR, f), "utf-8")))
     .sort((a, b) => a.startTime - b.startTime);
 }
 
-function writeMeta(id: string, m: { id: string; cmd: string; startTime: number; endTime: number | null; exitCode: number | null; state: "running" | "done"; }) {
+function writeMeta(
+  id: string,
+  m: {
+    id: string;
+    cmd: string;
+    startTime: number;
+    endTime: number | null;
+    exitCode: number | null;
+    state: "running" | "done";
+  },
+) {
   mkdirSync(SESSION_DIR, { recursive: true });
   writeFileSync(metaPath(id), JSON.stringify(m));
 }
 
 function readMeta(id: string) {
-  try { return JSON.parse(readFileSync(metaPath(id), "utf-8")); } catch { return null; }
+  try {
+    return JSON.parse(readFileSync(metaPath(id), "utf-8"));
+  } catch {
+    return null;
+  }
 }
 
 function deleteSession(id: string) {
-  try { rmSync(metaPath(id)); rmSync(outPath(id)); } catch {}
+  try {
+    rmSync(metaPath(id));
+    rmSync(outPath(id));
+  } catch {}
 }
 
 function genId(name?: string) {
@@ -99,8 +140,25 @@ function genId(name?: string) {
 // The point of run-fast is to CORRECT you before you run something slow — so we hard-block these
 // and tell you the right tool.
 const bannedAsFirst: Set<string> = new Set([
-  "find", "cat", "grep", "rg", "sed", "awk", "cut", "sort", "uniq",
-  "less", "more", "xxd", "hexdump", "od", "base64", "tee", "tr", "paste", "join",
+  "find",
+  "cat",
+  "grep",
+  "rg",
+  "sed",
+  "awk",
+  "cut",
+  "sort",
+  "uniq",
+  "less",
+  "more",
+  "xxd",
+  "hexdump",
+  "od",
+  "base64",
+  "tee",
+  "tr",
+  "paste",
+  "join",
 ]);
 
 const WHY: Record<string, string> = {
@@ -160,7 +218,8 @@ const REPLACEMENTS: Record<string, string> = {
   xxd: "hex-decode in the code you're debugging; never dump bytes into the transcript.",
   hexdump: "hex-decode in code.",
   od: "octal/decimal inspect in code.",
-  base64: "base64-decode in code; never shell out a decode that pollutes output.",
+  base64:
+    "base64-decode in code; never shell out a decode that pollutes output.",
   tee: [
     "persist FULL output via run-fast's session file (run-fast <cmd> then run-fast logs <id>),",
     "   or the tool's own --output/--outfile flag — never tee a transcript.",
@@ -170,16 +229,35 @@ const REPLACEMENTS: Record<string, string> = {
   join: "do the relation join in code.",
 };
 
-async function streamReader(stream: ReadableStream<Uint8Array> | null, sink: { out: string; write: (t: string) => void }): Promise<void> {
+async function streamReader(
+  stream: ReadableStream<Uint8Array> | null,
+  sink: { out: string; write: (t: string) => void },
+): Promise<void> {
   if (!stream) return;
   const reader = stream.getReader();
-  try { while (true) { const { done, value } = await reader.read(); if (done) break; const t = new TextDecoder().decode(value); try { sink.write(t); } catch { break; } sink.out += t; } }
-  finally { reader.releaseLock(); }
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const t = new TextDecoder().decode(value);
+      try {
+        sink.write(t);
+      } catch {
+        break;
+      }
+      sink.out += t;
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function parseArgs(args: string[]): {
-  env: Record<string, string>; cwd: string;
-  segments: string[][]; ops: Array<"|" | "&&" | ";">; sessionName: string | undefined;
+  env: Record<string, string>;
+  cwd: string;
+  segments: string[][];
+  ops: Array<"|" | "&&" | ";">;
+  sessionName: string | undefined;
 } {
   const env: Record<string, string> = { ...process.env };
   let cwd: string | undefined;
@@ -190,10 +268,31 @@ function parseArgs(args: string[]): {
   let idx = 0;
   while (idx < args.length) {
     const a = args[idx++];
-    if (a === "--cwd" && idx < args.length) { cwd = args[idx++]; continue; }
-    if (a === "--env" && idx < args.length) { const ev = args[idx++]; if (ev?.includes("=")) { const [k, ...v] = ev.split("="); env[k] = v.join("="); } continue; }
-    if (a === "--id" && idx < args.length) { sessionName = args[idx++]; continue; }
-    if (a.includes("=") && !a.startsWith("-") && a.split("=")[0].match(/^[A-Z_][A-Z0-9_]*$/)) { const [k, ...v] = a.split("="); env[k] = v.join("="); continue; }
+    if (a === "--cwd" && idx < args.length) {
+      cwd = args[idx++];
+      continue;
+    }
+    if (a === "--env" && idx < args.length) {
+      const ev = args[idx++];
+      if (ev?.includes("=")) {
+        const [k, ...v] = ev.split("=");
+        env[k] = v.join("=");
+      }
+      continue;
+    }
+    if (a === "--id" && idx < args.length) {
+      sessionName = args[idx++];
+      continue;
+    }
+    if (
+      a.includes("=") &&
+      !a.startsWith("-") &&
+      a.split("=")[0].match(/^[A-Z_][A-Z0-9_]*$/)
+    ) {
+      const [k, ...v] = a.split("=");
+      env[k] = v.join("=");
+      continue;
+    }
     toks.push(a);
   }
 
@@ -203,7 +302,10 @@ function parseArgs(args: string[]): {
   let cur: string[] = [];
   for (const t of toks) {
     if (t === "|" || t === "&&" || t === ";") {
-      if (cur.length) { segments.push(cur); cur = []; }
+      if (cur.length) {
+        segments.push(cur);
+        cur = [];
+      }
       ops.push(t);
     } else {
       cur.push(t);
@@ -216,7 +318,9 @@ function parseArgs(args: string[]): {
   if (segments.length === 1 && ops.length === 0) {
     const cmd = segments[0];
     // Shell-compatible mode: run-fast -lc '<command>' — deadline-wrap through real bash.
-    const dashIdx = cmd.findIndex((c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login");
+    const dashIdx = cmd.findIndex(
+      (c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login",
+    );
     if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
       segments[0] = ["/bin/bash", "-lc", cmd.slice(dashIdx + 1).join(" ")];
     }
@@ -229,11 +333,11 @@ function parseArgs(args: string[]): {
       const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
       process.stderr.write(
         `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it.\n` +
-        `\n  WHY it's banned:\n` +
-        `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
-        `\n  DO THIS INSTEAD (run it now):\n` +
-        `  ${replace}\n` +
-        `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
+          `\n  WHY it's banned:\n` +
+          `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
+          `\n  DO THIS INSTEAD (run it now):\n` +
+          `  ${replace}\n` +
+          `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
       );
       process.exit(126);
     }
@@ -244,7 +348,10 @@ function parseArgs(args: string[]): {
 
 // ── Core ──
 
-export async function runSession(args: string[], opts: { quiet?: boolean } = {}): Promise<RunResult> {
+export async function runSession(
+  args: string[],
+  opts: { quiet?: boolean } = {},
+): Promise<RunResult> {
   const p = parseArgs(args);
   const t0 = performance.now();
   const id = genId(p.sessionName);
@@ -257,10 +364,26 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
     mkdirSync(SESSION_DIR, { recursive: true });
     const w = outPath(id);
     let pending = "";
-    const flush = () => { if (pending) { const fd = openSync(w, "a"); try { writeSync(fd, pending, null, "utf8"); } finally { closeSync(fd); } pending = ""; } };
+    const flush = () => {
+      if (pending) {
+        const fd = openSync(w, "a");
+        try {
+          writeSync(fd, pending, null, "utf8");
+        } finally {
+          closeSync(fd);
+        }
+        pending = "";
+      }
+    };
     return {
-      write(t: string) { process.stdout.write(t); pending += t; flush(); },
-      close() { flush(); },
+      write(t: string) {
+        process.stdout.write(t);
+        pending += t;
+        flush();
+      },
+      close() {
+        flush();
+      },
     };
   };
   const sink = mkSink();
@@ -276,21 +399,44 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
   };
 
   // Run one pipeline group (segments joined by |), honoring a trailing truncator.
-  const runGroup = async (segments: string[][]): Promise<{ stdout: string; exit: number }> => {
+  const runGroup = async (
+    segments: string[][],
+  ): Promise<{ stdout: string; exit: number }> => {
     // Detect trailing truncator → rewrite.
     const last = segments.at(-1)!;
     const trunc = isTrunc(last);
     const upstream = trunc ? segments.slice(0, -1) : segments;
-    const upCmd = (upstream.length ? upstream : [["true"]]).map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")).join(" | ");
-    const dl = deadlineFor(upstream[0], Number(process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE)));
+    const upCmd = (upstream.length ? upstream : [["true"]])
+      .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
+      .join(" | ");
+    const dl = deadlineFor(
+      upstream[0],
+      Number(
+        process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE),
+      ),
+    );
 
     // Rewrite: `upstream | head -N` → run `upstream` fully, persist, slice N lines for display.
     if (trunc) {
-      const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", upCmd], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
-      const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
+      const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", upCmd], {
+        stdout: "pipe",
+        stderr: "inherit",
+        stdin: "inherit",
+        cwd: p.cwd,
+        env: p.env as any,
+      });
+      const timer = setTimeout(() => {
+        try {
+          proc.kill(9);
+        } catch {}
+      }, dl * 1000);
       const buf: string[] = [];
       const reader = proc.stdout!.getReader();
-      while (true) { const { done, value } = await reader.read(); if (done) break; buf.push(new TextDecoder().decode(value)); }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf.push(new TextDecoder().decode(value));
+      }
       clearTimeout(timer);
       const raw = buf.join("");
       await proc.exited;
@@ -298,25 +444,85 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
       const lines = raw.split("\n");
       let win = lines;
       let note = "";
-      if (trunc === "head") { const n = Number(last[1]?.replace("-", "") ?? 10) || 10; win = lines.slice(0, n); note = `[full output first ${lines.length} lines saved to session file]`; }
-      if (trunc === "tail") { const n = Number(last[1]?.replace("-", "") ?? 10) || 10; win = lines.slice(-n); note = `[full output last ${lines.length} lines saved to session file]`; }
-      if (trunc === "wc") { win = [`${lines.length - 1}`]; note = `[full output (${lines.length - 1} lines) saved to session file; use the read tool on the file for the whole]`; }
-      return { stdout: win.join("\n") + (note ? `\n${note}` : ""), exit: proc.exitCode ?? 1 };
+      if (trunc === "head") {
+        const n = Number(last[1]?.replace("-", "") ?? 10) || 10;
+        win = lines.slice(0, n);
+        note = `[full output first ${lines.length} lines saved to session file]`;
+      }
+      if (trunc === "tail") {
+        const n = Number(last[1]?.replace("-", "") ?? 10) || 10;
+        win = lines.slice(-n);
+        note = `[full output last ${lines.length} lines saved to session file]`;
+      }
+      if (trunc === "wc") {
+        win = [`${lines.length - 1}`];
+        note = `[full output (${lines.length - 1} lines) saved to session file; use the read tool on the file for the whole]`;
+      }
+      return {
+        stdout: win.join("\n") + (note ? `\n${note}` : ""),
+        exit: proc.exitCode ?? 1,
+      };
     }
 
     // No truncator: run the pipeline normally, stream as it produces (live-persisted).
-    if (segments.length === 1 && !segments[0].map((s) => s.split("/").pop()).filter(Boolean).some((b) => bannedAsFirst.has(b)) && segments[0][0] !== "/bin/bash") {
-      const proc = spawn(segments[0], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
-      const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
-      await Promise.all([proc.exited, streamReader(proc.stdout, sink), streamReader(proc.stderr, { out: "", write: () => {} })]);
+    if (
+      segments.length === 1 &&
+      !segments[0]
+        .map((s) => s.split("/").pop())
+        .filter(Boolean)
+        .some((b) => bannedAsFirst.has(b)) &&
+      segments[0][0] !== "/bin/bash"
+    ) {
+      const proc = spawn(segments[0], {
+        stdout: "pipe",
+        stderr: "inherit",
+        stdin: "inherit",
+        cwd: p.cwd,
+        env: p.env as any,
+      });
+      const timer = setTimeout(() => {
+        try {
+          proc.kill(9);
+        } catch {}
+      }, dl * 1000);
+      await Promise.all([
+        proc.exited,
+        streamReader(proc.stdout, sink),
+        streamReader(proc.stderr, { out: "", write: () => {} }),
+      ]);
       clearTimeout(timer);
       return { stdout: "", exit: proc.exitCode ?? 1 };
     }
 
     // Multi-segment pipe / cached bash: run whole pipeline, stream out (live-persisted).
-    const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", segments.map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")).join(" | ")], { stdout: "pipe", stderr: "inherit", stdin: "inherit", cwd: p.cwd, env: p.env as any });
-    const timer = setTimeout(() => { try { proc.kill(9); } catch {} }, dl * 1000);
-    await Promise.all([proc.exited, streamReader(proc.stdout, sink), streamReader(proc.stderr, { out: "", write: () => {} })]);
+    const proc = spawn(
+      [
+        "/bin/bash",
+        "-o",
+        "pipefail",
+        "-c",
+        segments
+          .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
+          .join(" | "),
+      ],
+      {
+        stdout: "pipe",
+        stderr: "inherit",
+        stdin: "inherit",
+        cwd: p.cwd,
+        env: p.env as any,
+      },
+    );
+    const timer = setTimeout(() => {
+      try {
+        proc.kill(9);
+      } catch {}
+    }, dl * 1000);
+    await Promise.all([
+      proc.exited,
+      streamReader(proc.stdout, sink),
+      streamReader(proc.stderr, { out: "", write: () => {} }),
+    ]);
     clearTimeout(timer);
     return { stdout: "", exit: proc.exitCode ?? 1 };
   };
@@ -326,9 +532,15 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
   while (i < p.segments.length) {
     // Collect a | group.
     const group: string[][] = [p.segments[i]];
-    while (i < p.segments.length - 1 && p.ops[i] === "|") { group.push(p.segments[i + 1]); i++; }
+    while (i < p.segments.length - 1 && p.ops[i] === "|") {
+      group.push(p.segments[i + 1]);
+      i++;
+    }
     const res = await runGroup(group);
-    if (res.stdout) { process.stdout.write(`\n${res.stdout}\n`); sink.write(`\n${res.stdout}\n`); }
+    if (res.stdout) {
+      process.stdout.write(`\n${res.stdout}\n`);
+      sink.write(`\n${res.stdout}\n`);
+    }
     exit = res.exit;
     // Handle the op that follows this group (if any).
     if (i < p.segments.length - 1) {
@@ -343,7 +555,12 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
 
   const elapsedMs = performance.now() - t0;
   let verdict: RunResult["verdict"];
-  if (elapsedMs > Number(process.env.RF_DEADLINE ?? HARD_DEADLINE) * 1000) {
+  // Breach verdict must match the kill-timer deadline: honor the per-project
+  // policy (and RF_DEADLINE) rather than only the hardcoded 2.0s base.
+  const verdictDeadline = Number(
+    process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE),
+  );
+  if (elapsedMs > verdictDeadline * 1000) {
     verdict = "breach";
     urgentBreach(args, elapsedMs / 1000);
   } else if (exit !== 0) {
@@ -353,24 +570,51 @@ export async function runSession(args: string[], opts: { quiet?: boolean } = {})
   }
 
   // Persist full combined output (sink already wrote incrementally; meta confirms done).
-  writeMeta(id, { id, cmd: args.slice(0, 6).join(" "), startTime: t0, endTime: Date.now(), exitCode: exit, state: "done" });
+  writeMeta(id, {
+    id,
+    cmd: args.slice(0, 6).join(" "),
+    startTime: t0,
+    endTime: Date.now(),
+    exitCode: exit,
+    state: "done",
+  });
 
-  if (!opts.quiet) process.stderr.write(`[two-sec ${verdict} ${((elapsedMs / 1000) || 0).toFixed(2)}s exit=${exit}] id=${id}\n`);
-  if (verdict !== "ok") logVerdict(p.cwd, { kind: verdict, elapsedMs: Math.round(elapsedMs), exit, command: args.slice(0, 4).join(" ") });
+  if (!opts.quiet)
+    process.stderr.write(
+      `[two-sec ${verdict} ${(elapsedMs / 1000 || 0).toFixed(2)}s exit=${exit}] id=${id}\n`,
+    );
+  if (verdict !== "ok")
+    logVerdict(p.cwd, {
+      kind: verdict,
+      elapsedMs: Math.round(elapsedMs),
+      exit,
+      command: args.slice(0, 4).join(" "),
+    });
   return { verdict, elapsedMs, exitCode: exit };
 }
 
 export async function attachSession(id: string) {
   let meta = readMeta(id);
-  if (!meta) { process.stderr.write(`[run-fast] session ${id} not found\n`); process.exit(1); }
+  if (!meta) {
+    process.stderr.write(`[run-fast] session ${id} not found\n`);
+    process.exit(1);
+  }
   if (meta.state === "running") {
     let lastLen = 0;
     const poll = setInterval(() => {
       try {
         const c = readFileSync(outPath(id), "utf-8");
-        if (c.length > lastLen) { process.stdout.write(c.slice(lastLen)); lastLen = c.length; }
+        if (c.length > lastLen) {
+          process.stdout.write(c.slice(lastLen));
+          lastLen = c.length;
+        }
         meta = readMeta(id);
-        if (meta?.state === "done") { clearInterval(poll); process.stderr.write(`[two-sec done exit=${meta.exitCode}] id=${id}\n`); }
+        if (meta?.state === "done") {
+          clearInterval(poll);
+          process.stderr.write(
+            `[two-sec done exit=${meta.exitCode}] id=${id}\n`,
+          );
+        }
       } catch {}
     }, 50);
   } else {
@@ -380,34 +624,70 @@ export async function attachSession(id: string) {
 }
 
 export async function logsSession(id?: string) {
-  if (id) { try { process.stdout.write(readFileSync(outPath(id), "utf-8")); } catch { process.stdout.write("(no output)\n"); } }
-  else {
+  if (id) {
+    try {
+      process.stdout.write(readFileSync(outPath(id), "utf-8"));
+    } catch {
+      process.stdout.write("(no output)\n");
+    }
+  } else {
     const ss = getSessions();
-    if (ss.length === 0) { process.stdout.write("(no sessions)\n"); return; }
+    if (ss.length === 0) {
+      process.stdout.write("(no sessions)\n");
+      return;
+    }
     for (const s of ss.slice(-20)) {
-      try { const o = readFileSync(outPath(s.id), "utf-8").slice(-200).replace(/\n/g, " "); process.stdout.write(`id=${s.id} exit=${s.exitCode} ${s.state} ${s.cmd}\n  ${o}\n`); }
-      catch { process.stdout.write(`id=${s.id} exit=${s.exitCode} ${s.state} ${s.cmd}\n`); }
+      try {
+        const o = readFileSync(outPath(s.id), "utf-8")
+          .slice(-200)
+          .replace(/\n/g, " ");
+        process.stdout.write(
+          `id=${s.id} exit=${s.exitCode} ${s.state} ${s.cmd}\n  ${o}\n`,
+        );
+      } catch {
+        process.stdout.write(
+          `id=${s.id} exit=${s.exitCode} ${s.state} ${s.cmd}\n`,
+        );
+      }
     }
   }
 }
 
 export async function listSessions() {
   const ss = getSessions();
-  if (ss.length === 0) { process.stdout.write("(no sessions)\n"); return; }
-  for (const s of ss) process.stdout.write(`id=${s.id} exit=${s.exitCode ?? "?"} ${s.state} ${s.cmd}\n`);
+  if (ss.length === 0) {
+    process.stdout.write("(no sessions)\n");
+    return;
+  }
+  for (const s of ss)
+    process.stdout.write(
+      `id=${s.id} exit=${s.exitCode ?? "?"} ${s.state} ${s.cmd}\n`,
+    );
 }
 
 export async function purgeSessions(pattern?: string) {
-  const ss = getSessions(); let r = 0;
-  for (const s of ss) { if (pattern && !s.cmd.includes(pattern)) continue; deleteSession(s.id); r++; }
+  const ss = getSessions();
+  let r = 0;
+  for (const s of ss) {
+    if (pattern && !s.cmd.includes(pattern)) continue;
+    deleteSession(s.id);
+    r++;
+  }
   process.stderr.write(`[run-fast] purged ${r} session(s)\n`);
 }
 
 export async function cancelSession(id: string) {
   try {
     const { execSync } = await import("node:child_process");
-    for (const line of execSync(`pgrep -f "${id}" 2>/dev/null || true`, { encoding: "utf-8" }).trim().split("\n")) {
-      if (line.trim()) try { process.kill(Number(line)); } catch {}
+    for (const line of execSync(`pgrep -f "${id}" 2>/dev/null || true`, {
+      encoding: "utf-8",
+    })
+      .trim()
+      .split("\n")) {
+      if (line.trim())
+        try {
+          process.kill(Number(line));
+        } catch {}
     }
   } catch {}
   process.stderr.write(`[run-fast] cancelled ${id}\n`);
