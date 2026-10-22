@@ -71,7 +71,7 @@ export function effectiveBans(cwd: string): BanRule[] {
   );
 }
 
-export function effectiveDeadline(cwd: string, base = 2.0): number {
+export function effectiveDeadline(cwd: string, base = 4.0): number {
   return loadProjectPolicy(cwd).deadlineS ?? base;
 }
 

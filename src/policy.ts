@@ -92,6 +92,10 @@ export const DEADLINE_BUMPS: Record<string, number> = {
   "git:merge": 600,
   "git:rebase": 600,
   "git:submodule": 600,
+  // sudo = privileged long sys-ops (btrfs archives/walks, package ops). Always
+  // auto-detached (shouldDetach); this is the safety-net kill window so a
+  // wedged detached sudo is reaped, not a blocking wait.
+  sudo: 600,
 };
 
 /** Resolve the effective subcommand, skipping git-style flags and their values (`-C path`, `--help`). */
@@ -113,7 +117,7 @@ function effectiveSub(args: string[]): string {
 }
 
 /** Resolve the effective deadline for `args`, honoring per-command bumps. */
-export function deadlineFor(args: string[], baseS = 2.0): number {
+export function deadlineFor(args: string[], baseS = 4.0): number {
   const bin = String(args[0] ?? "");
   const sub = effectiveSub(args);
   if (bin === "ffs" || bin.endsWith("/ffs")) {
@@ -153,15 +157,38 @@ const DETACH_DEADLINE_S = 600; // 10 min hard ceiling for a detached network op
 
 export function shouldDetach(args: string[] = []): boolean {
   if (!args || args.length === 0) return false;
+  // `sudo` is inherently privileged + I/O-bound (btrfs archives, package ops,
+  // filesystem maintenance). It must NEVER be SIGKILL'd at the 2s base while
+  // the disk is loaded. Peel the `sudo` token and decide on the real command,
+  // but ALWAYS detach sudo regardless — a privileged sys-op is long by nature
+  // and blocking the agent on it defeats the point of run-fast. This is the
+  // same "fix, don't scold" auto-detach git/gh already get.
+  if (String(args[0]) === "sudo") return true;
   const bin = String(args[0] ?? "");
   const sub = effectiveSub(args);
   if (bin === "git") {
-    return ["push", "pull", "fetch", "clone", "merge", "rebase", "submodule"].includes(sub);
+    return [
+      "push",
+      "pull",
+      "fetch",
+      "clone",
+      "merge",
+      "rebase",
+      "submodule",
+    ].includes(sub);
   }
   if (bin === "gh") {
     return ["repo", "pr", "release", "api"].includes(sub);
   }
   if (bin === "make") return true;
+  // Maximal rule: ANY command the policy already classifies as SLOW (build,
+  // install, sync, network-IO) should auto-detach — hand it off to the
+  // background runner instead of 2s-killing long work. EXCEPT the local
+  // verify/test/check family, which per the existing contract stays FOREGROUND:
+  // those are the fast, commit-certain gates (e.g. `bun test`, `cargo check`)
+  // that must return inline, not as detached sessions.
+  const VERIFY_SUBS = new Set(["test", "check", "vet", "noEmit"]);
+  if (isSlow(bin, sub) && !VERIFY_SUBS.has(sub)) return true;
   return false;
 }
 
@@ -187,9 +214,9 @@ export const BANNED: BanRule[] = [
   },
   {
     test: /\|\s*true(\s|$)/,
-    action: "cancel",
+    action: "rewrite",
     reason: "'| true' swallows the exit code",
-    fix: "handle the failure explicitly",
+    fix: "handle the failure explicitly — but run it so the agent's flow is not blocked",
   },
   {
     test: /2>&\s*1/,
@@ -205,9 +232,9 @@ export const BANNED: BanRule[] = [
   },
   {
     test: /(^|\s)sleep\s+\d+/,
-    action: "cancel",
+    action: "rewrite",
     reason: "blocking sleep",
-    fix: "readiness-check or background it — never sleep to wait",
+    fix: "readiness-check or background it — never sleep to wait; advise but run",
   },
   {
     test: /\[:\s*-?\d+\s*\]\s*$|\bhead\s+-c\s|\btail\s+-c\s/,

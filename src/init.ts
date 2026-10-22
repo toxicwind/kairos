@@ -38,7 +38,8 @@ RF_BIN="$HOME/estate/bin/run-fast"
 [ -x "$RF_BIN" ] || RF_BIN="$HOME/estate/ranch/kairos/bin/kairos"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="\${RF_QUIET:-1}"
-export RF_DEADLINE="\${RF_DEADLINE:-2.0}"
+export RF_DEADLINE="\${RF_DEADLINE:-4.0}"
+export DELEND_CODE_RACE="\${DELEND_CODE_RACE:-$HOME/estate/bin/delend-code-race}"
 
 _2s_urgent() {
   echo "════ [kairos GUARD — URGENT, CANCELLED] ════"

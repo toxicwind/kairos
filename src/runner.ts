@@ -35,7 +35,8 @@ import { effectiveDeadline, logVerdict } from "./project-policy.ts";
 import { deadlineFor, shouldDetach } from "./policy.ts";
 
 const SESSION_DIR = join(process.env.HOME || "/tmp", ".run-fast");
-const HARD_DEADLINE = 2.0; // seconds. NON-NEGOTIABLE.
+const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
+const DELEND_CODE_RACE = process.env.DELEND_CODE_RACE || "/home/toxic/estate/bin/delend-code-race";
 
 export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
@@ -53,39 +54,55 @@ const scold = (msg: string) => {
 const REDACT = "*****";
 
 export function redactCmd(args: string[]): string {
-  return args
-    .map((a) => {
-      // KEY=value or api_key=value / token=… / secret=… / password=… / _key=…
-      const kv = /^([A-Za-z_][A-Za-z0-9_-]*(?:api[_k]ey|token|secret|password|_key)=)(.+)$/i.exec(a);
-      if (kv) return `${kv[1]}${REDACT}`;
-      // Header-style: Authorization: Bearer … / X-API-Key: … / x-api-key: …
-      const hdr = /^(Authorization|Bearer|X-API-Key|x-api-key)\s*:\s*\S.+$/i.exec(a);
-      if (hdr) return a.replace(/^(.*?)(:|Bearer)\s*\S.+$/i, `$1$2 ${REDACT}`);
-      // Bare atr_/sk- style key tokens (Atria, OpenAI, etc.)
-      if (/^(atr|sk|ghp|gho|gsk|key)_[A-Za-z0-9]+$/.test(a)) return REDACT;
-      return a;
-    })
-    .slice(0, 8)
-    .join(" ")
-    // Sweep any leftovers anywhere in the joined line.
-    .replace(/Bearer\s+\S+/gi, `Bearer ${REDACT}`)
-    .replace(/(api_key|apiKey|token|secret|password)=[^\s"']+/gi, `$1=${REDACT}`);
+  return (
+    args
+      .map((a) => {
+        // KEY=value or api_key=value / token=… / secret=… / password=… / _key=…
+        const kv =
+          /^([A-Za-z_][A-Za-z0-9_-]*(?:api[_k]ey|token|secret|password|_key)=)(.+)$/i.exec(
+            a,
+          );
+        if (kv) return `${kv[1]}${REDACT}`;
+        // Header-style: Authorization: Bearer … / X-API-Key: … / x-api-key: …
+        const hdr =
+          /^(Authorization|Bearer|X-API-Key|x-api-key)\s*:\s*\S.+$/i.exec(a);
+        if (hdr)
+          return a.replace(/^(.*?)(:|Bearer)\s*\S.+$/i, `$1$2 ${REDACT}`);
+        // Bare atr_/sk- style key tokens (Atria, OpenAI, etc.)
+        if (/^(atr|sk|ghp|gho|gsk|key)_[A-Za-z0-9]+$/.test(a)) return REDACT;
+        return a;
+      })
+      .slice(0, 8)
+      .join(" ")
+      // Sweep any leftovers anywhere in the joined line.
+      .replace(/Bearer\s+\S+/gi, `Bearer ${REDACT}`)
+      .replace(
+        /(api_key|apiKey|token|secret|password)=[^\s"']+/gi,
+        `$1=${REDACT}`,
+      )
+  );
 }
 
-const urgentBreach = (cmd: string[], elapsedS: number) => {
+const urgentBreach = (cmd: string[], elapsedS: number, cwd: string = process.cwd()) => {
+  const redacted = redactCmd(cmd);
   process.stdout.write(
-    `\n════ [kairos BREACH — URGENT, MUST DO] ════\n` +
-      `  '${redactCmd(cmd)}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
-      `  YOU VIOLATED THE 2-SECOND RULE. This is a DEFECT, not a result.\n` +
-      `  MUST DO NOW — race a FASTER alternative via the AST tools (in order):\n` +
-      `  1. ast-grep run -p '<pattern>'       # tree-sitter structural AST search (exact)\n` +
-      `     bm25 <query>                      # semantic recall over symbols/comments\n` +
-      `  2. ffs flow <symbol> / ffs impact <symbol>  # def+body+callees + blast radius\n` +
-      `  3. forge borrow '<what it does>'     # external faster prior art\n` +
-      `  4. OR background it (background_process) — never wait longer.\n` +
-      `  DO NOT retry the same slow command. A breach without a raced fix = defect.\n` +
+    `\n════ [kairos 4s BREACH — URGENT, AUTO-RACING VIA delend-code-race] ════\n` +
+      `  '${redacted}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
+      `  YOU VIOLATED THE 4-SECOND RULE. Auto-triggering delend-code-race...\n` +
       `═══════════════════════════════════════\n`,
   );
+  if (existsSync(DELEND_CODE_RACE) && process.env.DELEND_CODE_RACE_ACTIVE !== "1") {
+    try {
+      const r = Bun.spawnSync(["bun", DELEND_CODE_RACE, redacted], {
+        cwd,
+        env: { ...process.env, DELEND_CODE_RACE_ACTIVE: "1", RUN_FAST_ACTIVE: "1" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const out = new TextDecoder().decode(r.stdout).trim();
+      if (out) process.stdout.write(`${out}\n`);
+    } catch {}
+  }
 };
 
 const scoldNotRunFast = (extra: string) => {
@@ -283,6 +300,12 @@ function parseArgs(args: string[]): {
   sessionName: string | undefined;
 } {
   const env: Record<string, string> = { ...process.env };
+  // Re-entry guard: mark every child as ALREADY running under run-fast so the
+  // bash-2s-shim wrappers (git/gh/bun/npm/…) use the real binary instead of
+  // re-routing through run-fast. Without this, a detached or foreground child
+  // sources the shim, hits a slow route, and re-triggers run-fast → unbounded
+  // recursion (observed: gh api spawning hundreds of `kairos run gh api`).
+  env.RUN_FAST_ACTIVE = "1";
   let cwd: string | undefined;
   let sessionName: string | undefined;
 
@@ -345,7 +368,14 @@ function parseArgs(args: string[]): {
       (c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login",
     );
     if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
-      segments[0] = ["/bin/bash", "-lc", cmd.slice(dashIdx + 1).join(" ")];
+      // Permanent fix (2026-10-20): use `bash -c`, NOT `bash -lc`, for the
+      // coerced one-shot shell. `-lc` sources the login shell, which loads the
+      // estate `.bashrc` wrappers that re-route `git`/`kairos` — so a wrapped
+      // `kairos run -lc 'git rebase'` spawned an unbounded recursion of
+      // `bun run kairos ... git ...` (~hundreds at 100% CPU). The child already
+      // inherits run-fast's env; a login shell only re-triggers the wrappers.
+      // Use `bash -c` → the real binary is reached, no re-entry.
+      segments[0] = ["/bin/bash", "-c", cmd.slice(dashIdx + 1).join(" ")];
     }
   }
 
@@ -596,7 +626,7 @@ export async function runSession(
   );
   if (elapsedMs > verdictDeadline * 1000) {
     verdict = "breach";
-    urgentBreach(args, elapsedMs / 1000);
+    urgentBreach(args, elapsedMs / 1000, p.cwd);
   } else if (exit !== 0) {
     verdict = "fail";
   } else {
@@ -782,7 +812,10 @@ export async function runDetached(
   const tee = (buf: Uint8Array) => {
     try {
       writeSync(fd, buf, null, "utf8");
-      if (!opts.quiet) process.stderr.write(`[run-fast ${id}] ` + new TextDecoder().decode(buf));
+      if (!opts.quiet)
+        process.stderr.write(
+          `[run-fast ${id}] ` + new TextDecoder().decode(buf),
+        );
     } catch {}
   };
   // Canonical Bun pattern (borrowed from bun docs): Subprocess.stdout is a
