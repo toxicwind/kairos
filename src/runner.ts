@@ -425,7 +425,24 @@ export async function runSession(
   // the agent follows up with attach/logs/cancel. This replaces the 2s-kill +
   // breach+retry worst case with a sub-ms handoff.
   if (shouldDetach(p.segments[0] ?? [])) {
-    await runDetached(args, opts);
+    const det = await runDetached(args, opts);
+    // AUTO-FOLLOW (streaming delivery): detach alone returns a pointer and the
+    // agent yields — the result never lands. Instead, stay on the call and
+    // stream the session to completion (bounded by the detach ceiling), then
+    // return the real exit code. `KAIROS_WAIT=0` restores pointer-only mode.
+    if (process.env.KAIROS_WAIT !== "0") {
+      await attachSession(det.id);
+      const meta = readMeta(det.id);
+      return {
+        verdict: "ok",
+        elapsedMs: meta
+          ? meta.endTime && meta.startTime
+            ? meta.endTime - meta.startTime
+            : 0
+          : 0,
+        exitCode: meta?.exitCode ?? 1,
+      };
+    }
     return { verdict: "ok", elapsedMs: 0, exitCode: 0 };
   }
 
