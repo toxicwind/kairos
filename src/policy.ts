@@ -116,8 +116,22 @@ function effectiveSub(args: string[]): string {
   return "";
 }
 
-/** Resolve the effective deadline for `args`, honoring per-command bumps. */
-export function deadlineFor(args: string[], baseS = 4.0): number {
+/**
+ * Resolve the effective deadline for `args`, honoring per-command bumps.
+ *
+ * When `explicitS` is given (`--deadline=N`), return it VERBATIM — a user-supplied
+ * strict absolute deadline wins over DEADLINE_BUMPS and `.two-sec/policy.json`
+ * deadlineS. The runner threads the explicit value through BOTH the kill-timer and
+ * the breach verdict so they can never disagree (previously the kill-timer added
+ * bumps on top while the verdict used the raw flag → a strict `--deadline=1 tsgo…`
+ * could kill at the bumped 180s while still verdicting a breach at 1s).
+ */
+export function deadlineFor(
+  args: string[],
+  baseS = 4.0,
+  explicitS?: number,
+): number {
+  if (explicitS !== undefined) return explicitS;
   const bin = String(args[0] ?? "");
   const sub = effectiveSub(args);
   if (bin === "ffs" || bin.endsWith("/ffs")) {

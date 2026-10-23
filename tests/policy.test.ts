@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { firstBan, isSlow, shouldDetach, detachDeadline, deadlineFor } from "../src/policy.ts";
+import {
+  firstBan,
+  isSlow,
+  shouldDetach,
+  detachDeadline,
+  deadlineFor,
+} from "../src/policy.ts";
 import { guard } from "../src/guard.ts";
 
 describe("policy", () => {
@@ -55,5 +61,17 @@ describe("policy", () => {
   });
   test("detachDeadline ceiling", () => {
     expect(detachDeadline(["git", "push"])).toBe(600);
+  });
+  test("explicit --deadline=N is strict, verbatim (overrides bumps + base)", () => {
+    // A user-supplied strict deadline beats DEADLINE_BUMPS (tsgo=180) and the base.
+    expect(deadlineFor(["tsgo", "--noEmit"], 4.0, 1.0)).toBe(1.0);
+    expect(deadlineFor(["git", "push"], 4.0, 2.5)).toBe(2.5);
+    expect(deadlineFor(["bun", "test"], 4.0, 0.5)).toBe(0.5);
+    expect(deadlineFor(["echo", "hi"], 4.0, 3.0)).toBe(3.0);
+  });
+  test("without explicitS, deadlineFor still honors bumps + base", () => {
+    expect(deadlineFor(["tsgo", "--noEmit"], 4.0)).toBe(180);
+    expect(deadlineFor(["git", "status"], 4.0)).toBe(20);
+    expect(deadlineFor(["echo", "hi"], 4.0)).toBe(4.0);
   });
 });

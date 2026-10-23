@@ -36,7 +36,8 @@ import { deadlineFor, shouldDetach } from "./policy.ts";
 
 const SESSION_DIR = join(process.env.HOME || "/tmp", ".run-fast");
 const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
-const DELEND_CODE_RACE = process.env.DELEND_CODE_RACE || "/home/toxic/estate/bin/delend-code-race";
+const DELEND_CODE_RACE =
+  process.env.DELEND_CODE_RACE || "/home/toxic/estate/bin/delend-code-race";
 
 export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
@@ -83,7 +84,11 @@ export function redactCmd(args: string[]): string {
   );
 }
 
-const urgentBreach = (cmd: string[], elapsedS: number, cwd: string = process.cwd()) => {
+const urgentBreach = (
+  cmd: string[],
+  elapsedS: number,
+  cwd: string = process.cwd(),
+) => {
   const redacted = redactCmd(cmd);
   process.stdout.write(
     `\n════ [kairos 4s BREACH — URGENT, AUTO-RACING VIA delend-code-race] ════\n` +
@@ -91,11 +96,18 @@ const urgentBreach = (cmd: string[], elapsedS: number, cwd: string = process.cwd
       `  YOU VIOLATED THE 4-SECOND RULE. Auto-triggering delend-code-race...\n` +
       `═══════════════════════════════════════\n`,
   );
-  if (existsSync(DELEND_CODE_RACE) && process.env.DELEND_CODE_RACE_ACTIVE !== "1") {
+  if (
+    existsSync(DELEND_CODE_RACE) &&
+    process.env.DELEND_CODE_RACE_ACTIVE !== "1"
+  ) {
     try {
       const r = Bun.spawnSync(["bun", DELEND_CODE_RACE, redacted], {
         cwd,
-        env: { ...process.env, DELEND_CODE_RACE_ACTIVE: "1", RUN_FAST_ACTIVE: "1" },
+        env: {
+          ...process.env,
+          DELEND_CODE_RACE_ACTIVE: "1",
+          RUN_FAST_ACTIVE: "1",
+        },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -421,6 +433,16 @@ export async function runSession(
   const id = genId(p.sessionName);
   process.stderr.write(`[run-fast] session=${id}\n`);
 
+  // Strict explicit deadline (`--deadline=N`): capture ONCE and thread through
+  // BOTH the kill-timer and the breach verdict so they always agree. When set it
+  // overrides command bumps and `.two-sec/policy.json` deadlineS (deadlineFor
+  // returns it verbatim).
+  const explicitS =
+    process.env.RF_DEADLINE !== undefined &&
+    process.env.RF_DEADLINE.trim() !== ""
+      ? Number(process.env.RF_DEADLINE)
+      : undefined;
+
   // Live-persist sink: writes EVERY chunk to both stdout (live) and the session file
   // (synchronous flush per chunk), so output is never buffered-and-lost and the
   // transcript is always the full record even if the process is killed mid-stream.
@@ -475,9 +497,10 @@ export async function runSession(
       .join(" | ");
     const dl = deadlineFor(
       upstream[0],
-      Number(
-        process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE),
-      ),
+      explicitS !== undefined
+        ? explicitS
+        : effectiveDeadline(p.cwd, HARD_DEADLINE),
+      explicitS,
     );
 
     // Rewrite: `upstream | head -N` → run `upstream` fully, persist, slice N lines for display.
@@ -620,10 +643,12 @@ export async function runSession(
   const elapsedMs = performance.now() - t0;
   let verdict: RunResult["verdict"];
   // Breach verdict must match the kill-timer deadline: honor the per-project
-  // policy (and RF_DEADLINE) rather than only the hardcoded 2.0s base.
-  const verdictDeadline = Number(
-    process.env.RF_DEADLINE ?? effectiveDeadline(p.cwd, HARD_DEADLINE),
-  );
+  // policy (and RF_DEADLINE) rather than only the hardcoded 2.0s base. When an
+  // explicit deadline is active, verdict and kill-timer share the identical value.
+  const verdictDeadline =
+    explicitS !== undefined
+      ? explicitS
+      : effectiveDeadline(p.cwd, HARD_DEADLINE);
   if (elapsedMs > verdictDeadline * 1000) {
     verdict = "breach";
     urgentBreach(args, elapsedMs / 1000, p.cwd);
