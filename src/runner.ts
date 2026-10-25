@@ -37,7 +37,8 @@ import { deadlineFor, shouldDetach } from "./policy.ts";
 const SESSION_DIR = join(process.env.HOME || "/tmp", ".run-fast");
 const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
 const DELEND_CODE_RACE =
-  process.env.DELEND_CODE_RACE || "/home/toxic/estate/bin/delend-code-race";
+  process.env.DELEND_CODE_RACE ||
+  "/home/toxic/pens/barn/estate-ops/delend-code-race";
 
 export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
@@ -53,6 +54,23 @@ const scold = (msg: string) => {
 
 /** Redact obvious secrets from a command line before it reaches a notice/log. */
 const REDACT = "*****";
+
+/**
+ * Losslessly quote an argv array back into a single re-runnable shell line.
+ *
+ * Unlike `redactCmd` (a flattened, truncated, secret-masked DIAGNOSTIC string),
+ * this preserves every argument boundary so a fragmented `-c` program, inline
+ * `FOO=bar` env assignment, glob, or quoted substring survives a `bash -c`
+ * round-trip. run-fast hands THIS to delend-code-race so the auto-racer races
+ * the real failing command, not a phantom.
+ */
+export function shellQuoteCmd(args: string[]): string {
+  return args
+    .map((a) =>
+      /^[A-Za-z0-9_./:=-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`,
+    )
+    .join(" ");
+}
 
 export function redactCmd(args: string[]): string {
   return (
@@ -101,16 +119,22 @@ const urgentBreach = (
     process.env.DELEND_CODE_RACE_ACTIVE !== "1"
   ) {
     try {
-      const r = Bun.spawnSync(["bun", DELEND_CODE_RACE, redacted], {
-        cwd,
-        env: {
-          ...process.env,
-          DELEND_CODE_RACE_ACTIVE: "1",
-          RUN_FAST_ACTIVE: "1",
+      // Pass the LOSSESS shell-quoted real command to code-race so it can
+      // reproduce the actual breach (quoting/`-c` programs/env/globs survive).
+      // `redacted` stays for the on-screen notice only — never for execution.
+      const r = Bun.spawnSync(
+        ["bun", DELEND_CODE_RACE, "--", shellQuoteCmd(cmd)],
+        {
+          cwd,
+          env: {
+            ...process.env,
+            DELEND_CODE_RACE_ACTIVE: "1",
+            RUN_FAST_ACTIVE: "1",
+          },
+          stdout: "pipe",
+          stderr: "pipe",
         },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      );
       const out = new TextDecoder().decode(r.stdout).trim();
       if (out) process.stdout.write(`${out}\n`);
     } catch {}

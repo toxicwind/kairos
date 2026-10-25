@@ -31,15 +31,15 @@ export function emitBashShim(): string {
   *[[:space:]]head[[:space:]]-[[:space:]]*c*|*[[:space:]]tail[[:space:]]-[[:space:]]*c*)
       _2s_urgent "byte truncation (head/tail -c)" "persist full output; slice in code only"; return 1 ;;`;
 
-  return `# kairos bash glue — GENERATED from ranch/kairos/src/policy.ts (bun SSOT).
-# Regenerate: bun run ranch/kairos/src/cli.ts init > ranch/kairos/shim.sh
+  return `# kairos bash glue — GENERATED from pens/olympus/products/kairos/src/policy.ts (bun SSOT).
+# Regenerate: bun run pens/olympus/products/kairos/src/cli.ts init > pens/olympus/products/kairos/shim.sh
 _2S_GUARD_SRC="${__filename}"
-RF_BIN="$HOME/estate/bin/run-fast"
-[ -x "$RF_BIN" ] || RF_BIN="$HOME/estate/ranch/kairos/bin/kairos"
+RF_BIN="$HOME/pens/barn/estate-ops/run-fast"
+[ -x "$RF_BIN" ] || RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="\${RF_QUIET:-1}"
 export RF_DEADLINE="\${RF_DEADLINE:-4.0}"
-export DELEND_CODE_RACE="\${DELEND_CODE_RACE:-$HOME/estate/bin/delend-code-race}"
+export DELEND_CODE_RACE="\${DELEND_CODE_RACE:-$HOME/pens/barn/estate-ops/delend-code-race}"
 
 _2s_urgent() {
   echo "════ [kairos GUARD — URGENT, CANCELLED] ════"

@@ -7,6 +7,7 @@ import {
   deadlineFor,
 } from "../src/policy.ts";
 import { guard } from "../src/guard.ts";
+import { emitBashShim } from "../src/init.ts";
 
 describe("policy", () => {
   test("bans /dev/null redirects", () => {
@@ -73,5 +74,23 @@ describe("policy", () => {
     expect(deadlineFor(["tsgo", "--noEmit"], 4.0)).toBe(180);
     expect(deadlineFor(["git", "status"], 4.0)).toBe(20);
     expect(deadlineFor(["echo", "hi"], 4.0)).toBe(4.0);
+  });
+});
+
+describe("kairos shim canonical-path emission", () => {
+  const shim = emitBashShim();
+
+  test("RF_BIN points at the canonical pens/barn/estate-ops/run-fast (not stale estate/bin)", () => {
+    expect(shim).toContain("$HOME/pens/barn/estate-ops/run-fast");
+    expect(shim).not.toContain("$HOME/estate/bin/run-fast");
+  });
+
+  test("DELEND_CODE_RACE fallback is the canonical pens/barn/estate-ops path", () => {
+    expect(shim).toContain("$HOME/pens/barn/estate-ops/delend-code-race");
+    expect(shim).not.toContain("$HOME/estate/bin/delend-code-race");
+  });
+
+  test("no stale estate/ranch mirror path remains in the emitted shim", () => {
+    expect(shim).not.toContain("estate/ranch");
   });
 });
