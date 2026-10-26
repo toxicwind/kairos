@@ -47,10 +47,18 @@ _2s_urgent() {
   echo "  MUST DO: $2"
 }
 
-_2s_slow() { case "$1:$2" in
+_2s_slow() {
+    # Re-entry guard: a run-fast/kairos child marks RUN_FAST_ACTIVE=1; wrappers
+    # in that child must use the REAL binary, never re-route to run-fast.
+    # Without this, bun run X under run-fast spawns bash (BASH_ENV sources
+    # this shim) then bun() routes to run-fast again: unbounded fork storm
+    # (observed: 9400 processes of kairos run bun run forge.ts borrow).
+    [ -n "\${RUN_FAST_ACTIVE:-}" ] && return 1
+    case "$1:$2" in
 ${slowCase}
   *) return 1 ;;
-esac }
+esac
+}
 
 _2s_guard() {
   local _c="\${1:-$BASH_COMMAND}"
@@ -90,7 +98,7 @@ go()   { _2s_wrap go "$@"; }
 uv()   { if _2s_slow uv "$1";   then "$RF_BIN" uv "$@";   else command uv "$@";   fi; }
 gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@";   fi; }
 go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
-timeout() { local _t="\${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; "$RF_BIN" --deadline "$_t" "$@"; }
+timeout() { local _t="\${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; if [ -n "\${RUN_FAST_ACTIVE:-}" ]; then command timeout "\$_t" "$@"; return; fi; "$RF_BIN" --deadline "\$_t" "$@"; }
 # head/tail doctrine wrappers: FILE-truncation → route to ffs (full read);
 # pipeline truncation (cmd | head, no FILE) → URGENT notice + cancel (126).
 # bash's DEBUG trap reports each pipeline element separately (head -N, no
