@@ -529,10 +529,13 @@ export async function runSession(
   const runGroup = async (
     segments: string[][],
   ): Promise<{ stdout: string; exit: number }> => {
-    // Detect trailing truncator → rewrite.
+    // Detect trailing truncator → rewrite. Only when an upstream segment exists:
+    // `head -5 file` has NO upstream — it's a plain file read, not a pipeline
+    // truncator (rewriting it to `true` silently lost the output and, worse,
+    // handed deadlineFor an undefined args array and crashed the runner).
     const last = segments.at(-1)!;
-    const trunc = isTrunc(last);
-    const upstream = trunc ? segments.slice(0, -1) : segments;
+    const upstream = segments.slice(0, -1);
+    const trunc = upstream.length ? isTrunc(last) : null;
     const upCmd = (upstream.length ? upstream : [["true"]])
       .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
       .join(" | ");

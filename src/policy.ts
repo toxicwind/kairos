@@ -127,7 +127,7 @@ function effectiveSub(args: string[]): string {
  * could kill at the bumped 180s while still verdicting a breach at 1s).
  */
 export function deadlineFor(
-  args: string[],
+  args: string[] = [],
   baseS = 4.0,
   explicitS?: number,
 ): number {

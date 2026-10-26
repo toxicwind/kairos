@@ -70,6 +70,13 @@ describe("policy", () => {
     expect(deadlineFor(["bun", "test"], 4.0, 0.5)).toBe(0.5);
     expect(deadlineFor(["echo", "hi"], 4.0, 3.0)).toBe(3.0);
   });
+  test("deadlineFor tolerates undefined/empty args (empty pipe group upstream)", () => {
+    // `head -5 file` rewrites to an empty upstream group; the runner passes
+    // upstream[0] verbatim. That must resolve to the base deadline, not crash.
+    expect(deadlineFor(undefined as unknown as string[], 4.0)).toBe(4.0);
+    expect(deadlineFor([], 4.0)).toBe(4.0);
+    expect(shouldDetach(undefined as unknown as string[])).toBe(false);
+  });
   test("without explicitS, deadlineFor still honors bumps + base", () => {
     expect(deadlineFor(["tsgo", "--noEmit"], 4.0)).toBe(180);
     expect(deadlineFor(["git", "status"], 4.0)).toBe(20);
