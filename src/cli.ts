@@ -91,7 +91,9 @@ if (cmd === "run" || cmd === "detach" || cmd === "bg") {
 switch (cmd) {
   case "run":
   case undefined:
-    await runSession(rest.length ? rest : ["true"]);
+    await runSession(rest.length ? rest : ["true"], {
+      quiet: process.env.RF_QUIET === "1",
+    });
     break;
   case "attach":
     await attachSession(rest[0] ?? "");

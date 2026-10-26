@@ -171,10 +171,56 @@ function getSessions(): {
   state: "running" | "done";
 }[] {
   if (!existsSync(SESSION_DIR)) return [];
-  return readdirSync(SESSION_DIR)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => JSON.parse(readFileSync(join(SESSION_DIR, f), "utf-8")))
-    .sort((a, b) => a.startTime - b.startTime);
+  const now = Date.now();
+  const sessions: {
+    id: string;
+    cmd: string;
+    startTime: number;
+    endTime: number | null;
+    exitCode: number | null;
+    state: "running" | "done";
+  }[] = [];
+  for (const f of readdirSync(SESSION_DIR)) {
+    if (!f.endsWith(".json")) continue;
+    // A session killed mid-write (crash/OOM/SIGKILL under the deadline wrapper)
+    // can leave an empty or truncated meta file. Do not let one corrupt row
+    // take down `list`/`purge` and strand the whole 100k-file archive.
+    let raw = "";
+    try {
+      raw = readFileSync(join(SESSION_DIR, f), "utf-8");
+      if (!raw.trim()) continue;
+      const parsed = JSON.parse(raw) as {
+        id?: string;
+        cmd?: string;
+        startTime?: number;
+        endTime?: number | null;
+        exitCode?: number | null;
+        state?: "running" | "done";
+      };
+      if (
+        !parsed ||
+        typeof parsed.id !== "string" ||
+        parsed.id !== f.replace(/\.json$/, "")
+      )
+        continue;
+      sessions.push({
+        id: parsed.id,
+        cmd: String(parsed.cmd ?? ""),
+        startTime:
+          typeof parsed.startTime === "number" ? parsed.startTime : now,
+        endTime: parsed.endTime == null ? null : Number(parsed.endTime),
+        exitCode: parsed.exitCode == null ? null : Number(parsed.exitCode),
+        state:
+          parsed.state === "running" || parsed.state === "done"
+            ? parsed.state
+            : "done",
+      });
+    } catch {
+      // Skip corrupt meta files so a single bad row never breaks the archive.
+      continue;
+    }
+  }
+  return sessions.sort((a, b) => a.startTime - b.startTime);
 }
 
 function writeMeta(
@@ -472,7 +518,7 @@ export async function runSession(
 
   const t0 = performance.now();
   const id = genId(p.sessionName);
-  process.stderr.write(`[run-fast] session=${id}\n`);
+  if (!opts.quiet) process.stderr.write(`[run-fast] session=${id}\n`);
 
   // Strict explicit deadline (`--deadline=N`): capture ONCE and thread through
   // BOTH the kill-timer and the breach verdict so they always agree. When set it

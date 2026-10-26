@@ -90,7 +90,7 @@ go()   { _2s_wrap go "$@"; }
 uv()   { if _2s_slow uv "$1";   then "$RF_BIN" uv "$@";   else command uv "$@";   fi; }
 gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@";   fi; }
 go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
-timeout() { shift 2>/dev/null; "$RF_BIN" "$@"; }
+timeout() { local _t="\${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; "$RF_BIN" --deadline "$_t" "$@"; }
 tail() { if [ "$1" = "-n" ] && [ -f "$3" ]; then echo "[two-sec] tail on files → ffs read $3 --full" >&2; command ffs read "$3" --full 2>/dev/null || command tail "$@"; else command tail "$@"; fi; }
 head() { if [ "$1" = "-n" ] && [ -f "$3" ]; then echo "[two-sec] head on files → ffs read $3 --budget $2" >&2; command ffs read "$3" --budget "\${2#-}" 2>/dev/null || command head "$@"; else command head "$@"; fi; }
 
