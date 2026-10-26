@@ -85,8 +85,43 @@ uv()   { if _2s_slow uv "$1";   then "$RF_BIN" uv "$@";   else command uv "$@"; 
 gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@";   fi; }
 go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
 timeout() { local _t="${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; "$RF_BIN" --deadline "$_t" "$@"; }
-tail() { if [ "$1" = "-n" ] && [ -f "$3" ]; then echo "[two-sec] tail on files → ffs read $3 --full" >&2; command ffs read "$3" --full 2>/dev/null || command tail "$@"; else command tail "$@"; fi; }
-head() { if [ "$1" = "-n" ] && [ -f "$3" ]; then echo "[two-sec] head on files → ffs read $3 --budget $2" >&2; command ffs read "$3" --budget "${2#-}" 2>/dev/null || command head "$@"; else command head "$@"; fi; }
+# head/tail doctrine wrappers: FILE-truncation → route to ffs (full read);
+# pipeline truncation (cmd | head, no FILE) → URGENT notice + cancel (126).
+# bash's DEBUG trap reports each pipeline element separately (head -N, no
+# pipe char), so the trap's | head pattern can never match a real pipeline —
+# the deterministic cancel lives HERE in the wrapper, not the trap. -f follow
+# is a live stream (monitoring), not truncation, and is passed through.
+tail() {
+  [ "$1" = "-f" ] && { command tail "$@"; return $?; }
+  local _a
+  for _a in "$@"; do
+    [ "$_a" != "-n" ] && [ "${_a#-}" = "$_a" ] && [ -f "$_a" ] && {
+      _2s_urgent "file truncation (tail $_a)" "ffs read $_a --full — full tail is the end of a full read"
+      command ffs read "$_a" --full 2>/dev/null || command tail "$@"
+      return $?
+    }
+  done
+  if [ -p /dev/stdin ]; then
+    _2s_urgent "pipeline truncation (tail) — persist FULL output" "run the upstream fully; read the result via ffs — never pipe tail"
+    return 126
+  fi
+  command tail "$@"
+}
+head() {
+  local _a
+  for _a in "$@"; do
+    [ "$_a" != "-n" ] && [ "${_a#-}" = "$_a" ] && [ -f "$_a" ] && {
+      _2s_urgent "file truncation (head $_a)" "ffs read $_a — reads the FULL file (1M context); no reason to truncate"
+      command ffs read "$_a" 2>/dev/null || command head "$@"
+      return $?
+    }
+  done
+  if [ -p /dev/stdin ]; then
+    _2s_urgent "pipeline truncation (head) — persist FULL output" "run the upstream fully; read the file/result via ffs — never pipe head"
+    return 126
+  fi
+  command head "$@"
+}
 
 export -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head 2>/dev/null
 export BASH_2S_SHIM=1

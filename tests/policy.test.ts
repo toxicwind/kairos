@@ -100,4 +100,27 @@ describe("kairos shim canonical-path emission", () => {
   test("no stale estate/ranch mirror path remains in the emitted shim", () => {
     expect(shim).not.toContain("estate/ranch");
   });
+
+  test("shim head/tail doctrine wrappers route files to ffs and cancel pipes", () => {
+    // Regression: agents kept using head/tail because (1) the wrappers only
+    // matched `-n N FILE` and (2) the DEBUG trap can't see piped segments.
+    // The wrappers must reference ffs for file reads and cancel piped streams.
+    expect(shim).toMatch(/command ffs read/);         // file truncation → ffs
+    expect(shim).toMatch(/never pipe head/);          // pipe-truncation doctrine
+    expect(shim).toMatch(/never pipe tail/);
+    expect(shim).toMatch(/\[ -p \/dev\/stdin \]/);    // pipe detection lives in the wrapper
+    // The wrapper must be self-contained (locally defined loop var, no ghosts).
+    expect(shim).toMatch(/for _a in "\$@"/);
+    // `-f` (follow) is monitoring, not truncation — must pass through unchanged.
+    expect(shim).toMatch(/\[ "\$1" = "-f" \]/);
+  });
+
+  test("shim preserves the full guard family for agent-shell snapshots", () => {
+    // tau's shell-snapshot strips `_2s_*` and `head|tail` as common tools; the
+    // estate shim re-adds the FULL family so bun()/git() and head/tail wrappers
+    // are never orphaned (command-not-found) in agent tool shells.
+    expect(shim).toMatch(/_2s_wrap/);
+    expect(shim).toMatch(/_2s_guard/);
+    expect(shim).toMatch(/_2s_urgent/);
+  });
 });
