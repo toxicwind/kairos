@@ -85,7 +85,13 @@ _2s_wrap() { # $1=bin, rest=args — guard-check then slow-route
   _2s_guard "$probe" || return 126
   if _2s_slow "$b" "$1"; then "$RF_BIN" "$b" "$@"; else command "$b" "$@"; fi
 }
-git()  { _2s_wrap git "$@"; }
+git()  {
+  # credential-helper protocol purity: \`git credential-*\` writes the credential
+  # stream to STDOUT. Any banner/notice on stdout corrupts it (push 401s).
+  # Never route credential helpers through run-fast — direct exec, no wrapper.
+  case "$1" in credential-*|credential) command git "$@"; return ;; esac
+  _2s_wrap git "$@"
+}
 bun()  { _2s_wrap bun "$@"; }
 npm()  { _2s_wrap npm "$@"; }
 pip()  { _2s_wrap pip "$@"; }

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# forge — pattern-forge launcher.
+#
+# Resolves the skill directory from its own location, so this works from any
+# checkout with no hardcoded host paths and no install step: the skill
+# system puts every skill's scripts/ directory on PATH, which is how a bare
+# `forge` resolves. Requires `bun` on PATH. Entry point is bin/forge.ts
+# (the package.json "bin" target, with a `#!/usr/bin/env bun` shebang).
+set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+exec bun "$SCRIPT_DIR/../bin/forge.ts" "$@"

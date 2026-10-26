@@ -1,0 +1,14 @@
+{
+  "name": "pattern-forge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Retrieve, race, borrow, search. Pure Bun, zero npm dependencies.",
+  "bin": { "forge": "./bin/forge.ts" },
+  "scripts": {
+    "forge": "bun bin/forge.ts",
+    "doctor": "bun bin/forge.ts doctor",
+    "test": "bun test"
+  },
+  "engines": { "bun": ">=1.4.0" }
+}
