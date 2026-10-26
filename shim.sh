@@ -122,6 +122,15 @@ head() {
   fi
   command head "$@"
 }
+# wc doctrine wrapper: cmd | wc -l is pipeline truncation (count swallows the
+# evidence) → cancel like head/tail. Legit file counting (wc -l FILE) passes.
+wc() {
+  if [ -p /dev/stdin ]; then
+    _2s_urgent "pipeline truncation (wc) — persist FULL output" "run the upstream fully; read the result via ffs — never pipe wc"
+    return 126
+  fi
+  command wc "$@"
+}
 
-export -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head 2>/dev/null
+export -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head wc 2>/dev/null
 export BASH_2S_SHIM=1

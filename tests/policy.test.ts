@@ -113,6 +113,10 @@ describe("kairos shim canonical-path emission", () => {
     expect(shim).toMatch(/for _a in "\$@"/);
     // `-f` (follow) is monitoring, not truncation — must pass through unchanged.
     expect(shim).toMatch(/\[ "\$1" = "-f" \]/);
+    // wc is also banned for pipelines (head/tail/wc) — must have a wrapper too,
+    // not just head/tail. Legit file counting (wc -l FILE) passes through.
+    expect(shim).toMatch(/never pipe wc/);
+    expect(shim).toMatch(/\bwc\(\)/);
   });
 
   test("shim preserves the full guard family for agent-shell snapshots", () => {
