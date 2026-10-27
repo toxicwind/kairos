@@ -105,10 +105,10 @@ describe("kairos shim canonical-path emission", () => {
     // Regression: agents kept using head/tail because (1) the wrappers only
     // matched `-n N FILE` and (2) the DEBUG trap can't see piped segments.
     // The wrappers must reference ffs for file reads and cancel piped streams.
-    expect(shim).toMatch(/command ffs read/);         // file truncation → ffs
-    expect(shim).toMatch(/never pipe head/);          // pipe-truncation doctrine
+    expect(shim).toMatch(/command ffs read/); // file truncation → ffs
+    expect(shim).toMatch(/never pipe head/); // pipe-truncation doctrine
     expect(shim).toMatch(/never pipe tail/);
-    expect(shim).toMatch(/\[ -p \/dev\/stdin \]/);    // pipe detection lives in the wrapper
+    expect(shim).toMatch(/\[ -p \/dev\/stdin \]/); // pipe detection lives in the wrapper
     // The wrapper must be self-contained (locally defined loop var, no ghosts).
     expect(shim).toMatch(/for _a in "\$@"/);
     // `-f` (follow) is monitoring, not truncation — must pass through unchanged.
@@ -126,5 +126,28 @@ describe("kairos shim canonical-path emission", () => {
     expect(shim).toMatch(/_2s_wrap/);
     expect(shim).toMatch(/_2s_guard/);
     expect(shim).toMatch(/_2s_urgent/);
+  });
+
+  test("shim does NOT export -f wrappers (leaks BASH_FUNC_* into interactive/user bash)", () => {
+    // Regression: the old shim did `export -f head tail wc git bun ...`, which put
+    // BASH_FUNC_head%%/tail%%/wc%%/... into the env of every child AND interactive
+    // shell, hijacking the human's bash (pipelines cancelled) and breaking .bashrc.
+    // Enforcement for agent children must come from BASH_ENV re-sourcing, not from
+    // exported function definitions. The word `export -f` may only appear in a
+    // leading comment explaining the removal, never as an executable line.
+    const funcLines = shim
+      .split("\n")
+      .filter((line) => /^\s*export\s+-f\b/.test(line));
+    expect(funcLines).toEqual([]);
+  });
+
+  test("shim gates on KAIROS_ENFORCE so an interactive shell goes idle, agents enforce", () => {
+    // Regression: the shim armed its DEBUG trap and wrapped binaries in EVERY
+    // shell, so a human's interactive bash was cancelled too. It now defaults to
+    // idle in interactive shells (KAIROS_ENFORCE=0) and enforces in agent shells.
+    expect(shim).toMatch(/KAIROS_ENFORCE/);
+    expect(shim).toMatch(/KAIROS_SHIM_MODE=interactive/);
+    expect(shim).toMatch(/KAIROS_SHIM_MODE=agent/);
+    expect(shim).toMatch(/== \*i\* ]]; then/); // interactive detection via $-
   });
 });

@@ -8,6 +8,27 @@ export RF_QUIET="${RF_QUIET:-1}"
 export RF_DEADLINE="${RF_DEADLINE:-4.0}"
 export DELEND_CODE_RACE="${DELEND_CODE_RACE:-$HOME/pens/barn/estate-ops/delend-code-race}"
 
+# kairos ENFORCES the 2s rule for AGENT tool shells (non-interactive, sourced
+# via BASH_ENV) but must NOT hijack an interactive human's bash: the DEBUG trap
+# fires before every command and the head/tail/wc/timeout wrappers cancel real
+# pipelines, so leaking them into ~/.bashrc breaks interactive use.
+#
+# Mode is a single explicit switch, defaulting to the shell's role: interactive
+# -> idle (no trap, no wrappers, real binaries), non-interactive -> enforce.
+# Set KAIROS_ENFORCE explicitly (0 idle / 1 enforce) to override.
+if [ -z "${KAIROS_ENFORCE:-}" ]; then
+  if [[ $- == *i* ]]; then export KAIROS_ENFORCE=0; else export KAIROS_ENFORCE=1; fi
+fi
+if [ "$KAIROS_ENFORCE" != "1" ]; then
+  export KAIROS_SHIM_MODE=interactive
+  trap - DEBUG 2>/dev/null || true
+  # Clear any wrapper functions inherited from a prior agent-shell load so the
+  # current (interactive) shell gets real binaries again.
+  unset -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head wc 2>/dev/null || true
+  return 0 2>/dev/null || true
+fi
+export KAIROS_SHIM_MODE=agent
+
 _2s_urgent() {
   echo "════ [kairos GUARD — URGENT, CANCELLED] ════"
   echo "  $1"
@@ -146,5 +167,9 @@ wc() {
   command wc "$@"
 }
 
-export -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head wc 2>/dev/null
+# Deliberately DO NOT export -f the wrapper functions. Exporting head/tail/
+# wc/git/bun/... leaks them into the env of every child and interactive shell
+# (observed: BASH_FUNC_head%%/tail%%/wc%% persist and hijack user bash).
+# Agent-child enforcement comes from BASH_ENV re-sourcing this generated shim,
+# not from exported functions; same guarantee, zero env pollution.
 export BASH_2S_SHIM=1
