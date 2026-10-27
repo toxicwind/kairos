@@ -72,6 +72,26 @@ export function shellQuoteCmd(args: string[]): string {
     .join(" ");
 }
 
+/**
+ * Quote a full pipeline (segments + operators) into one lossless bash line.
+ *
+ * The naive `a.includes(" ") ? '"'+a+'"' : a` join destroyed arguments
+ * containing double quotes (e.g. `--jq '.x + "|"'`) by stripping the inner
+ * quotes, and expanded `$`/backticks inside double-quoted args. Every
+ * execution path must build its bash line through THIS, never by hand.
+ */
+export function segmentsToCmd(
+  segments: string[][],
+  ops: Array<"&" | "&&" | ";" | "|"> = [],
+): string {
+  if (!segments.length) return "true";
+  let line = shellQuoteCmd(segments[0]);
+  for (let i = 1; i < segments.length; i++) {
+    line += ` ${ops[i - 1] ?? "|"} ${shellQuoteCmd(segments[i])}`;
+  }
+  return line;
+}
+
 export function redactCmd(args: string[]): string {
   return (
     args
@@ -583,7 +603,7 @@ export async function runSession(
     const upstream = segments.slice(0, -1);
     const trunc = upstream.length ? isTrunc(last) : null;
     const upCmd = (upstream.length ? upstream : [["true"]])
-      .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
+      .map((s) => shellQuoteCmd(s))
       .join(" | ");
     const dl = deadlineFor(
       upstream[0],
@@ -678,9 +698,7 @@ export async function runSession(
         "-o",
         "pipefail",
         "-c",
-        segments
-          .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
-          .join(" | "),
+        segments.map((s) => shellQuoteCmd(s)).join(" | "),
       ],
       {
         stdout: "pipe",
@@ -891,12 +909,9 @@ export async function runDetached(
   const id = genId(p.sessionName);
   mkdirSync(SESSION_DIR, { recursive: true });
 
-  const cmd =
-    p.segments.length > 0
-      ? p.segments
-          .map((s) => s.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "))
-          .join(" ")
-      : "true";
+  // Lossless: preserve every arg boundary AND the operators between segments —
+  // the old `join(" ")` turned `a && b` into `a b` and stripped inner quotes.
+  const cmd = p.segments.length > 0 ? segmentsToCmd(p.segments, p.ops) : "true";
 
   // Print the session id FIRST so an LLM/tool sees it before anything else.
   process.stderr.write(`[run-fast] session=${id} (detached)\n`);

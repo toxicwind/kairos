@@ -109,11 +109,13 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
   test("manifest carries every delend entry pointing at the hephaistos plugin", () => {
     const m = read(MANIFEST);
     // The three delend links, all resolving under the relocated plugin.
-    expect(m).toContain('name: "delend-code-race"');
+    // The manifest generator (2026-10-27 rewrite) emits PATH-style names
+    // ("~/.local/bin/<bin>"), not bare bin names — assert that form.
+    expect(m).toContain('name: "~/.local/bin/delend-code-race"');
     expect(m).toContain(`target: "${LAUNCHER}"`);
-    expect(m).toContain('name: "delend-code-race-line"');
+    expect(m).toContain('name: "~/.local/bin/delend-code-race-line"');
     expect(m).toContain(`target: "${join(PLUGIN, "bin/race-line.ts")}"`);
-    expect(m).toContain('name: "delend-code-race-rs"');
+    expect(m).toContain('name: "~/.local/bin/delend-code-race-rs"');
     expect(m).toContain(
       `target: "${join(PLUGIN, "crates/code-race/target/release/delend-code-race")}"`,
     );
