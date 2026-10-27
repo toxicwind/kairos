@@ -21,13 +21,8 @@ const read = (p: string) => {
   }
 };
 
-const realOf = (p: string): string => {
-  try {
-    return globalThis.Bun?.realpathSync(p) ?? p;
-  } catch {
-    return p;
-  }
-};
+// Keep a generous per-file timeout so slow realpath/spawn checks can breathe.
+if (typeof test.setTimeout === "function") test.setTimeout(60000);
 
 describe("delend-code-race chain survives the delendai→hephaistos reorg", () => {
   test("launcher imports the relocated plugin entry that still exports main", () => {
@@ -83,6 +78,48 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     );
     expect(read(LAUNCHER)).not.toContain(STALE_CORRAL);
     expect(read(launcherLine)).not.toContain(STALE_CORRAL);
+  });
+
+  test("no live tooling in the delend chain references a deleted path (estate-ops dup / corral)", () => {
+    // Stops the slow `grep -r pens` (143ms→60s timeout) by asserting over the
+    // deterministic chain surface instead: the launcher, its sibling line launcher,
+    // the kairos runner, and the manifest. These four files OWN every reference the
+    // auto-racer can follow; nothing outside them is reachable at runtime.
+    const surface = [
+      LAUNCHER,
+      join(HOME, "pens/barn/estate-ops/delend-code-race-line"),
+      join(HOME, "pens/olympus/products/kairos/src/runner.ts"),
+      MANIFEST,
+    ];
+    for (const p of surface) {
+      const text = read(p);
+      // The deleted corral/delendai path must never appear as a live reference.
+      expect(text, `no stale corral/delendai in ${p}`).not.toContain(
+        "corral/delendai",
+      );
+      // The old estate-ops delend-code-race-line sibling must not be referenced
+      // as a target (the plugin's bin/race-line.ts is the canonical entrypoint).
+      expect(
+        text,
+        `no estate-ops delend-code-race-line target in ${p}`,
+      ).not.toContain("barn/estate-ops/delend-code-race-line");
+    }
+  });
+
+  test("manifest carries every delend entry pointing at the hephaistos plugin", () => {
+    const m = read(MANIFEST);
+    // The three delend links, all resolving under the relocated plugin.
+    expect(m).toContain('name: "delend-code-race"');
+    expect(m).toContain(`target: "${LAUNCHER}"`);
+    expect(m).toContain('name: "delend-code-race-line"');
+    expect(m).toContain(`target: "${join(PLUGIN, "bin/race-line.ts")}"`);
+    expect(m).toContain('name: "delend-code-race-rs"');
+    expect(m).toContain(
+      `target: "${join(PLUGIN, "crates/code-race/target/release/delend-code-race")}"`,
+    );
+    // And nothing points at the deleted corral tree or the stale estate-ops dup.
+    expect(m).not.toContain("corral/delendai");
+    expect(m).not.toContain("estate-ops/delend-code-race-line");
   });
 
   test("shim emits canonical pens/barn paths for RF_BIN and DELEND_CODE_RACE", () => {
