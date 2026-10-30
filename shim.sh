@@ -7,6 +7,10 @@ RF_BIN="$HOME/pens/barn/estate-ops/run-fast"
 export RF_QUIET="${RF_QUIET:-1}"
 export RF_DEADLINE="${RF_DEADLINE:-4.0}"
 export DELEND_CODE_RACE="${DELEND_CODE_RACE:-$HOME/pens/barn/estate-ops/delend-code-race}"
+# rg agent-first defaults (dots file sat empty+unwired since 2026-10-19 —
+# kappa 2026-10-27: raw rg defaults caused megabyte line dumps on binaries
+# and inconsistent case handling across every agent shell)
+export RIPGREP_CONFIG_PATH="${RIPGREP_CONFIG_PATH:-$HOME/.config/ripgrep/config}"
 
 # kairos ENFORCES the 2s rule for AGENT tool shells (non-interactive, sourced
 # via BASH_ENV) but must NOT hijack an interactive human's bash: the DEBUG trap

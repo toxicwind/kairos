@@ -6,6 +6,11 @@
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./guard": "./src/guard.ts"
+  },
   "bin": {
     "kairos": "./src/cli.ts",
     "run-fast": "./src/cli.ts"
@@ -14,8 +19,14 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "engines": { "bun": ">=1.4.3-canary" },
+  "engines": {
+    "bun": ">=1.4.3-canary"
+  },
   "dependencies": {},
-  "devDependencies": { "@types/bun": "^1.2.0" },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "bun-types": "^1.4.4",
+    "@types/bun": "^1.2.0"
+  },
   "author": "toxicwind Fleet"
 }

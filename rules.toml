@@ -1,0 +1,129 @@
+# kairos rules.toml — the rule DB. Data, not code.
+#
+# Each [rule] = one verdict module. Fields (ALL per-rule, no global dogma):
+#
+#   pattern       (string, regex) what triggers — matched against the full command line
+#   timeout_ms    (int)  per-rule deadline; 0 = inherit base; ≥1 = this rule's own window
+#   cancel        (bool) false = never cancel, steer instead (autonomous); true = hard deny
+#   action        ("rewrite"|"persist"|"race"|"route-slow"|"none")
+#   rewrite       (string, optional) replacement template; $1..$9 = capture groups, $CMD = full line
+#   detach        (bool) run in background via the runner instead of foreground
+#   ledger        (bool) append every hit to the drift ledger (~/.kairos/ledger.jsonl)
+#   note          (string) terse one-liner shown to the agent (≤1 line, no banners)
+#   autonomy      ("auto"|"nudge"|"block")
+#                   auto  = fix + run + ledger, silent (agent flow never interrupted)
+#                   nudge = fix + run + ONE terse note line
+#                   block = cancel with banner (last resort; drift stats may demote it)
+#   drift         (table, managed) hits, last_hit — auto-written by the shim; rules
+#                   with hits=0 for 30d are flagged stale; rules with cancel=true
+#                   and >50 auto-reverts (agent re-run unchanged) are demoted to
+#                   autonomy=auto by `kairos drift --tune`.
+
+base_timeout_ms = 2000          # the floor, not the law — rules override
+
+[[rule]]
+id = "devnull"
+pattern = '(^|[\s;])\d?&?>\s*/dev/null|2>\s*/dev/null|1>\s*/dev/null'
+timeout_ms = 0
+cancel = false
+action = "rewrite"
+rewrite = ""                    # drop the redirect entirely
+note = "τ /dev/null dropped — full output is the contract"
+autonomy = "auto"
+ledger = true
+
+[[rule]]
+id = "pipe-true"
+pattern = '\|\s*true(\s|$)'
+timeout_ms = 0
+cancel = false
+action = "rewrite"
+rewrite = ""                    # drop '| true' — exit codes are data
+note = "τ '| true' dropped — exit code visible"
+autonomy = "auto"
+ledger = true
+
+[[rule]]
+id = "stderr-merge"
+pattern = '2>&\s*1'
+timeout_ms = 0
+cancel = false
+action = "rewrite"
+rewrite = ""                    # keep streams separate
+note = "τ 2>&1 dropped — streams separate"
+autonomy = "auto"
+ledger = true
+
+[[rule]]
+id = "truncate-head-tail"
+pattern = '\|\s*head(\s|$)|\|\s*tail(\s|$)|\|\s*wc\s+-l'
+timeout_ms = 0
+cancel = false
+action = "persist"              # shim wraps: full output → file, then print
+note = "τ full output persisted; slice in your head, not the pipe"
+autonomy = "auto"
+ledger = true
+
+[[rule]]
+id = "byte-slice"
+pattern = '\[:\s*-?\d+\s*\]\s*$|\bhead\s+-c\s|\btail\s+-c\s'
+timeout_ms = 0
+cancel = false
+action = "persist"
+note = "τ byte-slice → full output persisted"
+autonomy = "auto"
+ledger = true
+
+[[rule]]
+id = "blocking-sleep"
+pattern = '(^|\s)sleep\s+\d+'
+timeout_ms = 500                # sleeps die fast; they're never the answer
+cancel = false
+action = "none"
+note = "τ sleep is a smell — readiness-check instead (running anyway)"
+autonomy = "nudge"
+ledger = true
+
+[[rule]]
+id = "huge-tree-walk"
+pattern = '\b(diff|du|find|grep|rg|fd|ls|fclones)\b[^|]*&(gt;)?\s*/home/toxic/(estate|pens)'
+timeout_ms = 120000             # big trees get their own generous window
+cancel = false
+action = "race"
+note = "τ huge-tree walk → deadline runner"
+autonomy = "auto"
+ledger = true
+detach = true
+
+[[rule]]
+id = "git-network"
+pattern = '^git\s+(push|pull|fetch|clone|merge|rebase|submodule)\b'
+timeout_ms = 600000
+cancel = false
+action = "route-slow"
+detach = true
+note = ""
+autonomy = "auto"
+ledger = false
+
+[[rule]]
+id = "pkg-build"
+pattern = '^(bun|npm|pnpm|yarn|uv|pip3?|cargo|go|tsc|tsgo|turbo|make)\s+'
+timeout_ms = 600000
+cancel = false
+action = "route-slow"
+detach = false
+note = ""
+autonomy = "auto"
+ledger = false
+
+[[rule]]
+id = "sudo-any"
+pattern = '^sudo\b'
+timeout_ms = 600000
+cancel = false
+action = "route-slow"
+detach = true
+note = ""
+autonomy = "auto"
+ledger = false

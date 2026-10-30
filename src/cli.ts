@@ -25,7 +25,7 @@ import {
   cancelSession,
   runDetached,
 } from "./runner.ts";
-import { guard } from "./guard.ts";
+import { guard, verdict } from "./guard.ts";
 import { isSlow } from "./policy.ts";
 import { emitBashShim } from "./init.ts";
 
@@ -116,6 +116,34 @@ switch (cmd) {
     break;
   case "guard":
     process.exit(guard(rest.join(" ")));
+    break;
+  case "hook":
+    // Universal adapter protocol: read {command} JSON on stdin (any host's
+    // hook — claude-code PreToolUse-style, codex policy, generic wrapper),
+    // answer with a kairos verdict on stdout. Hosts translate:
+    //   deny    → block the tool call (exit code / block flag)
+    //   replace → rewrite the command input to `replacement`
+    //   allow   → run as-is
+    {
+      let raw = "";
+      for await (const chunk of Bun.stdin.stream()) raw += chunk;
+      let command = rest.join(" ");
+      if (!command && raw.trim()) {
+        try {
+          const parsed = JSON.parse(raw);
+          command =
+            parsed?.command ??
+            parsed?.tool_input?.command ??
+            parsed?.input?.command ??
+            "";
+        } catch {
+          command = raw.trim();
+        }
+      }
+      const v = verdict(command);
+      process.stdout.write(`${JSON.stringify(v)}\n`);
+      process.exit(v.action === "deny" ? 1 : 0);
+    }
     break;
   case "route":
     process.stdout.write(
