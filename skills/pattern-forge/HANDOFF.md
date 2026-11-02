@@ -110,7 +110,7 @@ Blockers right now: yote exec-bridge is DOWN (502) and GitHub creds are dead.
    (memory: WS lane down, HTTPS fallback works).
 2. Trace ownership/move history on yote (ffs + git log under /home/toxic —
    check whether pattern-forge already has a repo home, e.g. under
-   /home/toxic/estate/tools/, and whether this cell copy is ahead or behind
+   /home/toxic/pens/estate/tools/, and whether this cell copy is ahead or behind
    the yote copy; two prior workers died to restart drains, so diff the trees
    before moving anything — never lose code in the merge).
 3. Merge these changes (only `src/audit.ts` + this `HANDOFF.md`) into the

@@ -27,7 +27,7 @@ Developers working on large codebases who need fast, accurate code search with l
 python3 ast_bm25_racer.py --root /home/toxic/estate --query "gate retire agent-browser" --top-k 10
 
 # Scoped search with racing
-python3 ast_bm25_racer.py --root /home/toxic/estate/projects/yote --query "funnel map serve" --top-k 8 --race
+python3 ast_bm25_racer.py --root /home/toxic/pens/estate/projects/yote --query "funnel map serve" --top-k 8 --race
 
 # Full repo indexing (batch job)
 python3 ast_bm25_racer.py --root /home/toxic/estate --top-k 5

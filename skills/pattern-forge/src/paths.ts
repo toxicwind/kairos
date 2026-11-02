@@ -25,7 +25,7 @@ export const SKILL_DIR = dirname(dirname(new URL(import.meta.url).pathname));
 /** Well-known estate locations, probed in order. Probed, never assumed.
  * Deduped: on yote $HOME is /home/toxic so both entries coincide. */
 export function estateCandidates(): string[] {
-  return [...new Set(["/home/toxic/estate", join(HOME, "estate")])];
+  return [...new Set(["/home/toxic/pens/estate", join(HOME, "estate")])];
 }
 
 /** First existing candidate wins; the fallback is returned when none exist. */

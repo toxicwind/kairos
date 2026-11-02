@@ -28,7 +28,7 @@ workspace. No cloud mounts, no `dropbox:create_file`, no network calls.
 
 ```bash
 python3 ast_bm25_racer.py --root /home/toxic/estate --query "gate retire agent-browser" --top-k 10
-python3 ast_bm25_racer.py --root /home/toxic/estate/projects/yote --query "funnel map serve" --top-k 8 --race
+python3 ast_bm25_racer.py --root /home/toxic/pens/estate/projects/yote --query "funnel map serve" --top-k 8 --race
 ```
 
 ## Measured (yote, 2026-09-29)
