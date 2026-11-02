@@ -9,7 +9,7 @@ Combines two powerful ideas:
 ## Dynamic argv
 
 ```bash
-bun run /home/toxic/estate/skills/race-borrow/race-borrow.ts [patterns...] [options]
+bun run /home/toxic/pens/estate/skills/race-borrow/race-borrow.ts [patterns...] [options]
 
 Options:
   --top N            Number of top results to display (default: number of patterns)

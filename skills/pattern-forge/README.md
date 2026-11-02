@@ -47,7 +47,7 @@ The installer links `<prefix>/forge` at `bin/forge.ts` (the package.json
 
 ```bash
 # Retrieve code you half-remember
-forge retrieve --root /home/toxic/estate/ranch --query "stream broker subscribe topic route" --top 5
+forge retrieve --root /home/toxic/pens/estate/ranch --query "stream broker subscribe topic route" --top 5
 
 # Race implementations, first valid wins
 forge race --strategies '{"strategies":[{"name":"primary","cmd":["bun","run","a.ts"],"match":"^OK"},{"name":"backup","cmd":["bun","run","b.ts"],"match":"^OK"}]} --hedge-ms 300 --lead

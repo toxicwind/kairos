@@ -1,6 +1,6 @@
 # AGENTS.md — kairos component contract
 
-> **Refines:** `/home/toxic/estate/AGENTS.md` (the estate control-plane). Asserts
+> **Refines:** `/home/toxic/pens/estate/AGENTS.md` (the estate control-plane). Asserts
 > **"refines, never contradicts"** the estate contract above it.
 
 ## Mission

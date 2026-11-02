@@ -9,7 +9,7 @@ order. They are different tools with different behavior:
 
 | Path                              | What it is                                   | Deadline                             | Behavior                                                                                                                     |
 | --------------------------------- | -------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `/home/toxic/estate/bin/run-fast` | bash shim → `bun run $KAIROS_DIR/src/cli.ts` | `RF_DEADLINE` env (shim default 2.0) | kairos TS: pipeline splitter, truncation rewrite (persist-full + slice), per-command bumps, `[kairos BREACH — URGENT]` scold |
+| `/home/toxic/pens/estate/bin/run-fast` | bash shim → `bun run $KAIROS_DIR/src/cli.ts` | `RF_DEADLINE` env (shim default 2.0) | kairos TS: pipeline splitter, truncation rewrite (persist-full + slice), per-command bumps, `[kairos BREACH — URGENT]` scold |
 | `/home/toxic/bin/run-fast`        | static Python (author mandate 2026-10-13)    | `--deadline` flag, default 2.0       | kills the child process group, `[run-fast] BREACH`, exit 75                                                                  |
 
 `/usr/local/bin/run-fast` is a symlink → `/home/toxic/bin/run-fast` (the

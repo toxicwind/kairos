@@ -47,7 +47,7 @@ bun run race-borrow.ts --top 3 --per-page 10
 ## Config / optional services
 
 - **GITHUB_TOKEN/GH_TOKEN**: Environment variable required for GitHub API access
-- **Bun runtime**: Required — `bun run /home/toxic/estate/skills/race-borrow/race-borrow.ts`
+- **Bun runtime**: Required — `bun run /home/toxic/pens/estate/skills/race-borrow/race-borrow.ts`
 - **Providers**: openrouter, groq, google, mistral — select with `--providers` flag
 - **Interactive mode**: `--interactive` for interactive pattern selection
 
