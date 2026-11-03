@@ -38,9 +38,9 @@ const SESSION_DIR = join(process.env.HOME || "/tmp", ".run-fast");
 const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
 const DELEND_CODE_RACE =
   process.env.DELEND_CODE_RACE ||
-  "/home/toxic/pens/barn/estate-ops/delend-code-race";
-
-export interface RunResult {
+  "/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts";
+|
+|export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
   elapsedMs: number;
   exitCode: number;
