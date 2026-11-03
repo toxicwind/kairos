@@ -244,11 +244,6 @@ export const BANNED: BanRule[] = [
     reason: "blocking sleep",
     fix: "readiness-check or background it — never sleep to wait; advise but run",
   },
-  {
-    test: /\[:\s*-?\d+\s*\]\s*$|\bhead\s+-c\s|\btail\s+-c\s/,
-    reason: "byte/slice truncation in output",
-    fix: "persist full output; slice only in code, never in transcripts",
-  },
 ];
 
 /** Returns the first matching ban rule, or null. */

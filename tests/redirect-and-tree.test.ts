@@ -1,5 +1,9 @@
-import { describe, test, expect } from "bun:test";
-import { guard, redirectTargetMissing } from "../src/guard.ts";
+import { describe, test, expect, afterEach } from "bun:test";
+import { guard, redirectTargetMissing, hugeTreeScan, verdict } from "../src/guard.ts";
+
+afterEach(() => {
+  delete process.env.KAIROS_DEBUG;
+});
 
 describe("redirect-into-nonexistent-dir guard", () => {
   test("flags > into a missing parent", () => {
@@ -32,5 +36,42 @@ describe("huge-tree scan routing", () => {
   });
   test("small scoped finds are fine", () => {
     expect(guard("find /tmp/kappa -name '*.ts'")).toBe(0);
+  });
+  test("hugeTreeScan allows bounded maxdepth finds", () => {
+    expect(
+      hugeTreeScan("find /home/toxic/pens -maxdepth 2 -name '*.ts'"),
+    ).toBeNull();
+    expect(hugeTreeScan("find /home/toxic/pens -name '*.ts'")).toBe(
+      "/home/toxic/pens",
+    );
+  });
+  test("verdict routes slow ops to replace", () => {
+    const v = verdict("git push origin main");
+    expect(v.action).toBe("replace");
+    expect(v.replacement).toContain("run-fast");
+  });
+  test("verdict denies missing redirect parent", () => {
+    const v = verdict("echo hi > /tmp/kappa/kairos-t/NOPE/f.txt");
+    expect(v.action).toBe("deny");
+  });
+  test("verdict allows clean and internal commands", () => {
+    expect(verdict("").action).toBe("allow");
+    expect(verdict("_2s_slow git push").action).toBe("allow");
+    expect(verdict("git status --porcelain").action).toBe("allow");
+  });
+  test("guard debug path prints under KAIROS_DEBUG=1", () => {
+    process.env.KAIROS_DEBUG = "1";
+    const origErr = process.stderr.write;
+    let captured = "";
+    process.stderr.write = ((c: string) => {
+      captured += String(c);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      guard("echo hi > /tmp/kappa/kairos-t/NOPE/f.txt");
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(captured).toContain("[kairos guard]");
   });
 });

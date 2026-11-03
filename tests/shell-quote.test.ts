@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shellQuoteCmd, redactCmd } from "../src/runner";
+import { shellQuoteCmd, redactCmd, segmentsToCmd } from "../src/quote.ts";
 
 describe("shellQuoteCmd", () => {
   test("plain tokens pass through unquoted", () => {
@@ -56,5 +56,43 @@ describe("redactCmd", () => {
     expect(redactCmd(["gh", "api", "api_key=sk-123456"])).toBe(
       "gh api api_key=*****",
     );
+  });
+  test("redacts Authorization header", () => {
+    expect(redactCmd(["curl", "-H", "Authorization: Bearer abc123def"])).toContain(
+      "Authorization: *****",
+    );
+    expect(redactCmd(["curl", "-H", "Authorization: Bearer abc123def"])).not.toContain(
+      "abc123def",
+    );
+  });
+  test("redacts bare key tokens", () => {
+    expect(redactCmd(["gh", "api", "sk-abcdef123"])).toContain("*****");
+  });
+  test("redacts KEY=value forms", () => {
+    expect(redactCmd(["env", "TOKEN=supersecret", "cmd"])).toContain(
+      "TOKEN=*****",
+    );
+  });
+  test("caps at 8 args", () => {
+    const out = redactCmd(Array(20).fill("a"));
+    expect(out.split(" ").length).toBeLessThanOrEqual(8);
+  });
+});
+
+describe("segmentsToCmd", () => {
+  test("joins segments with ops", () => {
+    expect(segmentsToCmd([["ls"], ["grep", "x"]], ["|"])).toBe("ls | grep x");
+    expect(
+      segmentsToCmd([["git", "add", "."], ["git", "commit"]], ["&&"]),
+    ).toBe("git add . && git commit");
+  });
+  test("defaults op to pipe", () => {
+    expect(segmentsToCmd([["a"], ["b"]])).toBe("a | b");
+  });
+  test("empty segments returns true", () => {
+    expect(segmentsToCmd([], [])).toBe("true");
+  });
+  test("quotes args with spaces", () => {
+    expect(segmentsToCmd([["echo", "hello world"]])).toBe("echo 'hello world'");
   });
 });
