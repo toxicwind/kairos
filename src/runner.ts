@@ -50,6 +50,10 @@ export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
   elapsedMs: number;
   exitCode: number;
+  /** Full accumulated stdout across all groups — the MITM contract: a
+   *  `| head`/`| tail`/`| wc` truncator is stripped and the COMPLETE output is
+   *  returned, as if the truncation never happened. Tests assert on this. */
+  stdout: string;
 }
 
 async function streamReader(
@@ -163,12 +167,21 @@ function parseArgs(args: string[]): {
     }
   }
 
-  // Ban check on EVERY segment's first command — AUTONOMOUS (fix, don't scold):
-  // rewrite the offending tool to its sanctioned equivalent and RUN it, so the
-  // agent's work never dead-ends on a message. Silent when a rewrite exists.
+  // Ban check on the FIRST segment of each pipeline group — AUTONOMOUS
+  // (fix, don't scold): rewrite the offending tool to its sanctioned
+  // equivalent and RUN it, so the agent's work never dead-ends on a message.
+  // Silent when a rewrite exists.
+  //
+  // ONLY the head segment is rewritten. A downstream segment (after `|`) is a
+  // FILTER on stdin — `grep b` in `cmd | grep b` filters the upstream's
+  // output, it does NOT search the tree. Rewriting it to `ffs grep b --root .`
+  // would turn a stdin filter into a recursive index search and drop the pipe
+  // entirely (the upstream's stdout is never read). Downstream filters run
+  // as-is; their semantics are already correct.
   // `KAIROS_STRICT=1` restores the old hard-cancel for hosts that want
   // enforcement, not autonomy.
   for (let si = 0; si < segments.length; si++) {
+    if (si > 0) break; // only the head of the pipeline group is a standalone command
     const seg = segments[si];
     const base = seg[0]?.split("/").pop() ?? "";
     if (!bannedAsFirst.has(base)) continue;
@@ -224,9 +237,10 @@ export async function runSession(
             : 0
           : 0,
         exitCode: meta?.exitCode ?? 1,
+        stdout: "",
       };
     }
-    return { verdict: "ok", elapsedMs: 0, exitCode: 0 };
+    return { verdict: "ok", elapsedMs: 0, exitCode: 0, stdout: "" };
   }
 
   const t0 = performance.now();
@@ -291,6 +305,16 @@ export async function runSession(
       explicitS,
     );
 
+    // Capture the group's stdout so the caller can return it (the MITM
+    // contract: full output is returned, never sliced). The outer loop owns
+    // writing stdout to the sink/process — this buffer only collects it.
+    const groupOut: string[] = [];
+    const captureSink = {
+      write: (t: string) => {
+        groupOut.push(t);
+      },
+    };
+
     // MITM rewrite: detect a trailing truncator (head/tail/wc) with an upstream.
     const last = segments.at(-1)!;
     const upstream = segments.slice(0, -1);
@@ -328,7 +352,6 @@ export async function runSession(
       clearTimeout(timer);
       const raw = buf.join("");
       await proc.exited;
-      sink.write(raw); // persist full upstream to the session file
       return {
         stdout: raw,
         exit: proc.exitCode ?? 1,
@@ -367,7 +390,6 @@ export async function runSession(
         clearTimeout(timer);
         const raw = buf.join("");
         await proc.exited;
-        sink.write(raw);
         return {
           stdout: raw,
           exit: proc.exitCode ?? 1,
@@ -398,11 +420,11 @@ export async function runSession(
       }, dl * 1000);
       await Promise.all([
         proc.exited,
-        streamReader(proc.stdout, sink),
+        streamReader(proc.stdout, captureSink),
         streamReader(proc.stderr, { write: () => {} }),
       ]);
       clearTimeout(timer);
-      return { stdout: "", exit: proc.exitCode ?? 1 };
+      return { stdout: groupOut.join(""), exit: proc.exitCode ?? 1 };
     }
 
     // Multi-segment pipe / cached bash: run whole pipeline, stream out (live-persisted).
@@ -429,15 +451,16 @@ export async function runSession(
     }, dl * 1000);
     await Promise.all([
       proc.exited,
-      streamReader(proc.stdout, sink),
+      streamReader(proc.stdout, captureSink),
       streamReader(proc.stderr, { write: () => {} }),
     ]);
     clearTimeout(timer);
-    return { stdout: "", exit: proc.exitCode ?? 1 };
+    return { stdout: groupOut.join(""), exit: proc.exitCode ?? 1 };
   };
 
   let exit = 0;
   let i = 0;
+  const stdoutParts: string[] = [];
   while (i < p.segments.length) {
     // Collect a | group.
     const group: string[][] = [p.segments[i]];
@@ -447,6 +470,7 @@ export async function runSession(
     }
     const res = await runGroup(group);
     if (res.stdout) {
+      stdoutParts.push(res.stdout);
       process.stdout.write(`\n${res.stdout}\n`);
       sink.write(`\n${res.stdout}\n`);
     }
@@ -498,7 +522,7 @@ export async function runSession(
       exit,
       command: args.slice(0, 4).join(" "),
     });
-  return { verdict, elapsedMs, exitCode: exit };
+  return { verdict, elapsedMs, exitCode: exit, stdout: stdoutParts.join("\n") };
 }
 
 export async function attachSession(id: string) {

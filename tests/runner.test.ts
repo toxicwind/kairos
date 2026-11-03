@@ -29,31 +29,36 @@ function useTmpSession() {
 }
 
 describe("runSession", () => {
-  test("runs a fast command to completion", async () => {
+  test("echo returns its output in stdout", async () => {
     useTmpSession();
     const r = await runSession(["echo", "hello"], { quiet: true });
     expect(r.verdict).toBe("ok");
     expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("hello");
   });
 
-  test("runs a | head pipeline (display truncation is a plain pipeline)", async () => {
+  test("MITM: | head returns the FULL upstream output (ls is not windowed)", async () => {
     useTmpSession();
     const r = await runSession(
-      ["ls", "/home/toxic/pens/olympus/products/kairos", "|", "head", "-3"],
+      ["ls", "/home/toxic/pens/olympus/products/kairos", "|", "head", "-1"],
+      { quiet: true },
+    );
+    expect(r.verdict).toBe("ok");
+    // head -1 would return 1 line; the MITM returns the FULL listing.
+    expect(r.stdout.split("\n").filter(Boolean).length).toBeGreaterThan(1);
+    expect(r.stdout).toContain("package.json");
+  });
+
+  test("rewrites banned cat to ffs read invisibly (returns file content)", async () => {
+    useTmpSession();
+    const r = await runSession(
+      ["cat", "/home/toxic/pens/olympus/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
     expect(r.exitCode).toBe(0);
-  });
-
-  test("rewrites banned cat to ffs read invisibly", async () => {
-    useTmpSession();
-    const r = await runSession(
-      ["cat", "package.json"],
-      { quiet: true },
-    );
-    expect(r.verdict).toBe("ok");
-    expect(r.exitCode).toBe(0);
+    // The rewrite must return the real file content, not an error or empty.
+    expect(r.stdout).toContain('"name": "kairos"');
   });
 
   test("reports fail on non-zero exit", async () => {
@@ -63,23 +68,35 @@ describe("runSession", () => {
     expect(r.exitCode).toBe(1);
   });
 
-  test("detaches slow network ops (git push)", async () => {
+  test("detaches slow network ops (git status, not push)", async () => {
     useTmpSession();
     process.env.KAIROS_WAIT = "0";
-    const r = await runSession(["git", "push"], { quiet: true });
+    // Use git status (read-only) — never git push in a test.
+    const r = await runSession(["git", "status"], { quiet: true });
     expect(r.verdict).toBe("ok");
   });
 
-  test("parses --cwd and --env", async () => {
+  test("--cwd changes the working directory (pwd reflects it)", async () => {
     useTmpSession();
     const r = await runSession(
-      ["--cwd", "/home/toxic/pens/olympus/products/kairos", "--env", "FOO=bar", "echo", "hi"],
+      ["--cwd", "/tmp", "pwd"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain("/tmp");
   });
 
-  test("coerces bash -c one-shot shell", async () => {
+  test("--env reaches the child (echo $FOO expands)", async () => {
+    useTmpSession();
+    const r = await runSession(
+      ["--env", "FOO=bar", "sh", "-c", "echo $FOO"],
+      { quiet: true },
+    );
+    expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain("bar");
+  });
+
+  test("coerces bash -c one-shot shell (output is the command's)", async () => {
     useTmpSession();
     const r = await runSession(
       ["-c", "echo shell-coerced"],
@@ -87,88 +104,120 @@ describe("runSession", () => {
     );
     expect(r.verdict).toBe("ok");
     expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("shell-coerced");
   });
 
-  test("handles && short-circuit", async () => {
+  test("handles && short-circuit (right side does not run on failure)", async () => {
     useTmpSession();
-    // `false && echo nope` — the && short-circuits, exit reflects false.
+    // `false && echo nope` — the && short-circuits, so 'nope' never prints.
     const r = await runSession(["false", "&&", "echo", "nope"], { quiet: true });
     expect(r.exitCode).toBe(1);
+    expect(r.stdout).not.toContain("nope");
   });
 
-  test("handles ; sequential operator", async () => {
+  test("handles ; sequential operator (both commands run)", async () => {
     useTmpSession();
     const r = await runSession(["echo", "a", ";", "echo", "b"], { quiet: true });
     expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain("a");
+    expect(r.stdout).toContain("b");
   });
 
-  test("multi-segment pipe runs through bash", async () => {
+  test("multi-segment pipe runs through bash (grep filters)", async () => {
     useTmpSession();
     const r = await runSession(
       ["printf", "a\\nb\\nc", "|", "grep", "b"],
       { quiet: true },
     );
     expect(r.exitCode).toBe(0);
+    // grep b must filter to only the 'b' line.
+    expect(r.stdout.split("\n").filter(Boolean)).toEqual(["b"]);
   });
 
-  test("env FOO=bar inline assignment", async () => {
+  test("env FOO=bar inline assignment reaches the child", async () => {
     useTmpSession();
-    const r = await runSession(["FOO=bar", "echo", "$FOO"], { quiet: true });
+    const r = await runSession(["FOO=bar", "sh", "-c", "echo $FOO"], { quiet: true });
     expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain("bar");
   });
 
-  test("MITM rewrites | head to run full + note", async () => {
+  test("MITM: | head returns the FULL upstream output, not the window", async () => {
     useTmpSession();
     const r = await runSession(
       ["printf", "a\\nb\\nc\\nd\\ne", "|", "head", "-2"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    // The truncator is stripped — every byte of the upstream is returned.
+    expect(r.stdout).toContain("a");
+    expect(r.stdout).toContain("e");
+    expect(r.stdout.split("\n").filter(Boolean)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
-  test("MITM rewrites | tail to run full + note", async () => {
+  test("MITM: | tail returns the FULL upstream output, not just the tail", async () => {
     useTmpSession();
     const r = await runSession(
       ["printf", "a\\nb\\nc\\nd\\ne", "|", "tail", "-2"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    expect(r.stdout.split("\n").filter(Boolean)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
-  test("MITM rewrites | wc to run full + note", async () => {
+  test("MITM: | wc returns the FULL upstream output, not the line count", async () => {
     useTmpSession();
     const r = await runSession(
       ["printf", "a\\nb\\nc\\nd\\ne", "|", "wc", "-l"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    expect(r.stdout.split("\n").filter(Boolean)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
-  test("MITM rewrites head file to run cat + note", async () => {
+  test("MITM: head file returns the FULL file contents, not the first N lines", async () => {
     useTmpSession();
     const r = await runSession(
       ["head", "-2", "/home/toxic/pens/olympus/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    // Full file content is present — not just the first 2 lines.
+    expect(r.stdout).toContain('"name": "kairos"');
+    expect(r.stdout).toContain('"scripts"');
+    expect(r.stdout.split("\n").length).toBeGreaterThan(2);
   });
 
-  test("MITM rewrites wc file to run cat + note", async () => {
+  test("MITM: wc file returns the FULL file contents, not the count", async () => {
     useTmpSession();
     const r = await runSession(
       ["wc", "-l", "/home/toxic/pens/olympus/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain('"name": "kairos"');
+    expect(r.stdout.split("\n").length).toBeGreaterThan(2);
   });
 
-  test("MITM rewrites tail file to run cat + note", async () => {
+  test("MITM: tail file returns the FULL file contents, not the last N lines", async () => {
     useTmpSession();
     const r = await runSession(
       ["tail", "-2", "/home/toxic/pens/olympus/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain('"name": "kairos"');
+    expect(r.stdout.split("\n").length).toBeGreaterThan(2);
+  });
+
+  test("MITM: a plain pipeline (no truncator) is untouched and returns its output", async () => {
+    useTmpSession();
+    const r = await runSession(
+      ["printf", "x\\ny", "|", "tr", "a-z", "A-Z"],
+      { quiet: true },
+    );
+    expect(r.verdict).toBe("ok");
+    expect(r.stdout).toContain("X");
+    expect(r.stdout).toContain("Y");
   });
 
   test("strict mode hard-blocks banned commands via subprocess", async () => {
