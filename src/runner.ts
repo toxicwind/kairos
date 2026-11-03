@@ -675,87 +675,22 @@ export async function runSession(
   };
   const sink = mkSink();
 
-  // A truncation segment (head/tail/wc -l) rewrites into: run upstream fully, persist
-  // to the session file, then display only the requested window with a pointer to full output.
-  const isTrunc = (seg: string[]): "head" | "tail" | "wc" | null => {
-    const base = seg[0]?.split("/").pop() ?? "";
-    if (base === "head") return "head";
-    if (base === "tail") return "tail";
-    if (base === "wc") return "wc";
-    return null;
-  };
-
-  // Run one pipeline group (segments joined by |), honoring a trailing truncator.
+  // Run one pipeline group (segments joined by |), streaming live as it produces.
+  // `cmd | head`/`| tail`/`| wc` are ordinary pipelines — display truncation is
+  // the agent's call, never rewritten or scolded. Full output is live-persisted
+  // to the session file regardless, so nothing is ever lost.
   const runGroup = async (
     segments: string[][],
   ): Promise<{ stdout: string; exit: number }> => {
-    // Detect trailing truncator → rewrite. Only when an upstream segment exists:
-    // `head -5 file` has NO upstream — it's a plain file read, not a pipeline
-    // truncator (rewriting it to `true` silently lost the output and, worse,
-    // handed deadlineFor an undefined args array and crashed the runner).
-    const last = segments.at(-1)!;
-    const upstream = segments.slice(0, -1);
-    const trunc = upstream.length ? isTrunc(last) : null;
-    const upCmd = (upstream.length ? upstream : [["true"]])
-      .map((s) => shellQuoteCmd(s))
-      .join(" | ");
     const dl = deadlineFor(
-      upstream[0],
+      segments[0],
       explicitS !== undefined
         ? explicitS
         : effectiveDeadline(p.cwd, HARD_DEADLINE),
       explicitS,
     );
 
-    // Rewrite: `upstream | head -N` → run `upstream` fully, persist, slice N lines for display.
-    if (trunc) {
-      const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", upCmd], {
-        stdout: "pipe",
-        stderr: "inherit",
-        stdin: "inherit",
-        cwd: p.cwd,
-        env: p.env as any,
-      });
-      const timer = setTimeout(() => {
-        try {
-          proc.kill(9);
-        } catch {}
-      }, dl * 1000);
-      const buf: string[] = [];
-      const reader = proc.stdout!.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf.push(new TextDecoder().decode(value));
-      }
-      clearTimeout(timer);
-      const raw = buf.join("");
-      await proc.exited;
-      sink.write(raw); // persist full upstream to the session file
-      const lines = raw.split("\n");
-      let win = lines;
-      let note = "";
-      if (trunc === "head") {
-        const n = Number(last[1]?.replace("-", "") ?? 10) || 10;
-        win = lines.slice(0, n);
-        note = `[full output first ${lines.length} lines saved to session file]`;
-      }
-      if (trunc === "tail") {
-        const n = Number(last[1]?.replace("-", "") ?? 10) || 10;
-        win = lines.slice(-n);
-        note = `[full output last ${lines.length} lines saved to session file]`;
-      }
-      if (trunc === "wc") {
-        win = [`${lines.length - 1}`];
-        note = `[full output (${lines.length - 1} lines) saved to session file; use the read tool on the file for the whole]`;
-      }
-      return {
-        stdout: win.join("\n") + (note ? `\n${note}` : ""),
-        exit: proc.exitCode ?? 1,
-      };
-    }
-
-    // No truncator: run the pipeline normally, stream as it produces (live-persisted).
+    // Run the pipeline normally, stream as it produces (live-persisted).
     if (
       segments.length === 1 &&
       !segments[0]

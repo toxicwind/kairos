@@ -239,12 +239,6 @@ export const BANNED: BanRule[] = [
     fix: "drop the merge — keep streams separate",
   },
   {
-    test: /\|\s*head(\s|$)|\|\s*tail(\s|$)|\|\s*wc\s+-l/,
-    action: "rewrite",
-    reason: "pipeline truncation (head/tail/wc)",
-    fix: "persist FULL output; read via ffs",
-  },
-  {
     test: /(^|\s)sleep\s+\d+/,
     action: "rewrite",
     reason: "blocking sleep",
