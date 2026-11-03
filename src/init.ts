@@ -24,8 +24,6 @@ export function emitBashShim(): string {
       _2s_urgent "'| true' swallows the exit code" "handle the failure explicitly"; return 1 ;;
   *"2>&1"*)
       _2s_urgent "'2>&1' merges stderr into stdout" "keep streams separate — no &2 merges"; return 1 ;;
-  *"| head"*|*"|head"*|*"| tail"*|*"|tail"*|*"| wc -l"*|*"|wc -l"*)
-      _2s_urgent "pipeline truncation (head/tail/wc)" "persist FULL output; read via ffs"; return 1 ;;
   *[[:space:]]sleep[[:space:]][0-9]*)
       _2s_urgent "blocking sleep" "readiness-check or background it — never sleep to wait"; return 1 ;;
   *[[:space:]]head[[:space:]]-[[:space:]]*c*|*[[:space:]]tail[[:space:]]-[[:space:]]*c*)
@@ -139,10 +137,12 @@ gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@"; 
 go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
 timeout() { local _t="\${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; if [ -n "\${RUN_FAST_ACTIVE:-}" ]; then command timeout "\$_t" "$@"; return; fi; "$RF_BIN" --deadline "\$_t" "$@"; }
 # head/tail doctrine wrappers: FILE-truncation → route to ffs (full read);
-# pipeline truncation (cmd | head, no FILE) → URGENT notice + cancel (126).
+# pipeline truncation (cmd | head, no FILE) → silent pass-through. The full
+# output is still captured by the tool transcript; a display window is not a
+# correctness violation, so it must not scold or cancel.
 # bash's DEBUG trap reports each pipeline element separately (head -N, no
 # pipe char), so the trap's | head pattern can never match a real pipeline —
-# the deterministic cancel lives HERE in the wrapper, not the trap. -f follow
+# the deterministic handling lives HERE in the wrapper, not the trap. -f follow
 # is a live stream (monitoring), not truncation, and is passed through.
 tail() {
   [ "$1" = "-f" ] && { command tail "$@"; return $?; }
@@ -154,12 +154,6 @@ tail() {
       return $?
     }
   done
-  if [ -p /dev/stdin ]; then
-    _2s_urgent "pipeline truncation (tail) — persist FULL output" "run the upstream fully; read the result via ffs — never pipe tail"
-    [ "\${KAIROS_STRICT:-0}" = "1" ] && return 126
-    command tail "$@"
-    return $?
-  fi
   command tail "$@"
 }
 head() {
@@ -171,23 +165,12 @@ head() {
       return $?
     }
   done
-  if [ -p /dev/stdin ]; then
-    _2s_urgent "pipeline truncation (head) — persist FULL output" "run the upstream fully; read the file/result via ffs — never pipe head"
-    [ "\${KAIROS_STRICT:-0}" = "1" ] && return 126
-    command head "$@"
-    return $?
-  fi
   command head "$@"
 }
-# wc doctrine wrapper: cmd | wc -l is pipeline truncation (count swallows the
-# evidence) → cancel like head/tail. Legit file counting (wc -l FILE) passes.
+# wc doctrine wrapper: piped cmd | wc -l is a display count, not a
+# correctness violation — silent pass-through. Legit file counting (wc -l FILE)
+# also passes.
 wc() {
-  if [ -p /dev/stdin ]; then
-    _2s_urgent "pipeline truncation (wc) — persist FULL output" "run the upstream fully; read the result via ffs — never pipe wc"
-    [ "\${KAIROS_STRICT:-0}" = "1" ] && return 126
-    command wc "$@"
-    return $?
-  fi
   command wc "$@"
 }
 
