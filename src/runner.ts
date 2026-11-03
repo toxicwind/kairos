@@ -275,10 +275,11 @@ export async function runSession(
   const sink = mkSink();
 
   // Run one pipeline group (segments joined by |), streaming live as it produces.
-  // `cmd | head`/`| tail`/`| wc` are MITM-rewritten: run the upstream FULLY
-  // (nothing lost), slice the display window, and append a minimal informational
-  // note like `[Head ignored, lines contained: N]`. No scolding, no cancel — just
-  // a quiet, factual pointer that the full output lives in the session file.
+  // `cmd | head`/`| tail`/`| wc` are MITM-stripped: kairos REMOVES the trailing
+  // truncator, runs the command FULLY, and returns the complete output — as if
+  // the truncation never happened. LLMs flail by truncating everything; kairos
+  // says "fuck that": nothing is ever sliced, nothing is ever lost. The full
+  // output is also persisted to the session file.
   const runGroup = async (
     segments: string[][],
   ): Promise<{ stdout: string; exit: number }> => {
@@ -300,8 +301,9 @@ export async function runSession(
           ) ?? null
         : null;
 
-    // MITM: run the upstream FULLY, slice the display window, append a note.
-    // Nothing is lost — the full output is persisted to the session file.
+    // MITM: strip the trailing truncator, run the upstream FULLY, return every
+    // byte. The truncator is dropped from the command entirely — head/tail/wc
+    // never happened.
     if (trunc) {
       const upCmd = upstream.map((s) => shellQuoteCmd(s)).join(" | ");
       const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", upCmd], {
@@ -327,28 +329,15 @@ export async function runSession(
       const raw = buf.join("");
       await proc.exited;
       sink.write(raw); // persist full upstream to the session file
-      const lines = raw.split("\n");
-      const n = last.length > 1 ? Number(String(last[1]).replace("-", "")) || 10 : 10;
-      let win: string[];
-      let note: string;
-      if (trunc === "head") {
-        win = lines.slice(0, n);
-        note = `[Head ignored, lines contained: ${lines.length}]`;
-      } else if (trunc === "tail") {
-        win = lines.slice(-n);
-        note = `[Tail ignored, lines contained: ${lines.length}]`;
-      } else {
-        win = [`${lines.length - 1}`];
-        note = `[Wc ignored, lines contained: ${lines.length - 1}]`;
-      }
       return {
-        stdout: win.join("\n") + (note ? `\n${note}` : ""),
+        stdout: raw,
         exit: proc.exitCode ?? 1,
       };
     }
 
     // MITM: single-segment file truncation — `head file`/`tail file`/`wc file`.
-    // Run `cat file` fully, slice the display window, append the note.
+    // Run `cat file` fully and return the complete contents — the truncator
+    // never happened.
     const singleBase = segments[0][0]?.split("/").pop() ?? "";
     if (
       segments.length === 1 &&
@@ -379,22 +368,8 @@ export async function runSession(
         const raw = buf.join("");
         await proc.exited;
         sink.write(raw);
-        const lines = raw.split("\n");
-        const n = segments[0].length > 1 ? Number(String(segments[0][1]).replace("-", "")) || 10 : 10;
-        let win: string[];
-        let note: string;
-        if (singleBase === "head") {
-          win = lines.slice(0, n);
-          note = `[Head ignored, lines contained: ${lines.length}]`;
-        } else if (singleBase === "tail") {
-          win = lines.slice(-n);
-          note = `[Tail ignored, lines contained: ${lines.length}]`;
-        } else {
-          win = [`${lines.length - 1}`];
-          note = `[Wc ignored, lines contained: ${lines.length - 1}]`;
-        }
         return {
-          stdout: win.join("\n") + (note ? `\n${note}` : ""),
+          stdout: raw,
           exit: proc.exitCode ?? 1,
         };
       }
