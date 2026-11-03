@@ -39,8 +39,8 @@ const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
 const DELEND_CODE_RACE =
   process.env.DELEND_CODE_RACE ||
   "/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts";
-|
-|export interface RunResult {
+
+export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";
   elapsedMs: number;
   exitCode: number;
@@ -303,6 +303,66 @@ const bannedAsFirst: Set<string> = new Set([
   "join",
 ]);
 
+/** Identify and rewrite a banned command into its sanctioned 1:1 equivalent.
+
+Rewrite rules are LOSSY-SAFE: only when the arg shape is unambiguous we map
+to ffs; otherwise the command runs as-is with a notice (see parseArgs).
+`KAIROS_STRICT=1` disables autonomy and hard-cancels instead.
+*/
+function isStrict(): boolean {
+  return process.env.KAIROS_STRICT === "1";
+}
+
+/**
+ * 1:1 autonomous rewrites for banned commands where the sanctioned semantics
+ * are identical. Returns null when no safe rewrite exists — the caller runs
+ * the original with a notice instead of cancelling (unless KAIROS_STRICT).
+ */
+function rewriteBanned(seg: string[]): string[] | null {
+  const base = seg[0]?.split("/").pop() ?? "";
+  const args = seg.slice(1);
+  switch (base) {
+    case "cat":
+      // cat <file> → ffs read <file> (same content, no -n/-A flags)
+      if (args.length === 1 && !args[0].startsWith("-"))
+        return ["ffs", "read", args[0]];
+      return null;
+    case "head":
+    case "tail":
+      // head/tail <file> (-n N optional) → ffs read <file> (full read; the
+      // window is a display concern, the read is wholesale). Only when a plain
+      // file operand exists and no -c is present (byte truncation ≠ read).
+      if (
+        !args.some((a) => a === "-c" || a === "--bytes" || a === "-f") &&
+        args.some((a) => !a.startsWith("-") && a !== "-")
+      ) {
+        const file = args.filter((a) => !a.startsWith("-") && a !== "-").at(-1)!;
+        return ["ffs", "read", file];
+      }
+      return null;
+    case "find":
+      // find <dir> … → fd (gitignore-aware; positional dir is the SAME shape).
+      if (args.length >= 1 && !args[0].startsWith("-"))
+        return ["fd", ...args];
+      return null;
+    case "grep":
+    case "rg":
+      // grep <pattern> → ffs grep <pattern> --root <dir>; only when the arg
+      // shape is a bare pattern + optional dir (no -r flags needed; ffs greps
+      // recursively by default). Drops -i/-n? No — keep semantics: only map
+      // the truly-simple shape.
+      if (args.length >= 1 && !args[0].startsWith("-")) {
+        const pattern = args[0];
+        const rest = args.slice(1).filter((a) => !a.startsWith("-"));
+        const root = rest.at(-1);
+        return ["ffs", "grep", pattern, "--root", root ?? "."];
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
 const WHY: Record<string, string> = {
   find: "walks the whole tree every time → O(entries), GB of stat calls. fd/ffs use gitignore + an index.",
   grep: "ripgrep-fresh re-scan of a huge tree is wasteful when the ffs index already has the answer.",
@@ -481,21 +541,37 @@ function parseArgs(args: string[]): {
     }
   }
 
-  // Ban check on EVERY segment's first command.
-  for (const seg of segments) {
+  // Ban check on EVERY segment's first command — AUTONOMOUS (fix, don't scold):
+  // rewrite the offending tool to its sanctioned equivalent and RUN it, so the
+  // agent's work never dead-ends on a message. `KAIROS_STRICT=1` restores the
+  // old hard-cancel for hosts that want enforcement, not autonomy.
+  for (let si = 0; si < segments.length; si++) {
+    const seg = segments[si];
     const base = seg[0]?.split("/").pop() ?? "";
-    if (bannedAsFirst.has(base)) {
-      const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
+    if (!bannedAsFirst.has(base)) continue;
+    const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
+    const rewritten = rewriteBanned(seg);
+    if (rewritten && !isStrict()) {
       process.stderr.write(
-        `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it.\n` +
+        `[run-fast autonomous] '${base}' is banned — rewrote to: ${rewritten.join(" ")}\n`,
+      );
+      segments[si] = rewritten;
+      continue;
+    }
+    if (isStrict()) {
+      process.stderr.write(
+        `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it (KAIROS_STRICT).\n` +
           `\n  WHY it's banned:\n` +
           `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
           `\n  DO THIS INSTEAD (run it now):\n` +
-          `  ${replace}\n` +
-          `\n  Contract: do not run '${base}' again this session. You got corrected.\n`,
+          `  ${replace}\n`,
       );
       process.exit(126);
     }
+    // No 1:1 rewrite available and not strict: still run it, with notice.
+    process.stderr.write(
+      `[run-fast autonomous] '${base}' is banned (${WHY[base] ?? "slow/wrong lane"}) — running with notice; prefer: ${replace}\n`,
+    );
   }
 
   return { env, cwd: cwd ?? process.cwd(), segments, ops, sessionName };

@@ -87,14 +87,18 @@ describe("policy", () => {
 describe("kairos shim canonical-path emission", () => {
   const shim = emitBashShim();
 
-  test("RF_BIN points at the canonical pens/barn/estate-ops/run-fast (not stale estate/bin)", () => {
-    expect(shim).toContain("$HOME/pens/barn/estate-ops/run-fast");
-    expect(shim).not.toContain("$HOME/estate/bin/run-fast");
+  test("RF_BIN resolves via ~/.local/bin (estate bin-contract), not barn/estate-ops", () => {
+    expect(shim).toContain("$HOME/.local/bin/run-fast");
+    expect(shim).not.toContain("$HOME/pens/barn/");
   });
 
-  test("DELEND_CODE_RACE fallback is the canonical pens/barn/estate-ops path", () => {
-    expect(shim).toContain("$HOME/pens/barn/estate-ops/delend-code-race");
-    expect(shim).not.toContain("$HOME/estate/bin/delend-code-race");
+  test("DELEND_CODE_RACE fallback is the hephaistos code-race plugin entry", () => {
+    // init.ts embeds the runtime-expanded absolute path (not a runtime $HOME
+    // expansion) — the shim literal carries the absolute pens path.
+    expect(shim).toContain(
+      "/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts",
+    );
+    expect(shim).not.toContain("$HOME/pens/barn/");
   });
 
   test("no stale estate/ranch mirror path remains in the emitted shim", () => {
