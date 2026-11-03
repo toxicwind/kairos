@@ -301,6 +301,7 @@ const bannedAsFirst: Set<string> = new Set([
   "tr",
   "paste",
   "join",
+  "glob",
 ]);
 
 /** Identify and rewrite a banned command into its sanctioned 1:1 equivalent.
@@ -321,11 +322,15 @@ function isStrict(): boolean {
 function rewriteBanned(seg: string[]): string[] | null {
   const base = seg[0]?.split("/").pop() ?? "";
   const args = seg.slice(1);
+  const fileArg = args.filter((a) => !a.startsWith("-") && a !== "-").at(-1);
   switch (base) {
     case "cat":
-      // cat <file> → ffs read <file> (same content, no -n/-A flags)
-      if (args.length === 1 && !args[0].startsWith("-"))
-        return ["ffs", "read", args[0]];
+    case "less":
+    case "more":
+      // <file> → ffs read <file> (same content; less/more are paging on a
+      // single file — ffs read is the token-budgeted whole read).
+      if (args.length === 1 && !args[0].startsWith("-") && fileArg)
+        return ["ffs", "read", fileArg];
       return null;
     case "head":
     case "tail":
@@ -334,23 +339,34 @@ function rewriteBanned(seg: string[]): string[] | null {
       // file operand exists and no -c is present (byte truncation ≠ read).
       if (
         !args.some((a) => a === "-c" || a === "--bytes" || a === "-f") &&
-        args.some((a) => !a.startsWith("-") && a !== "-")
+        fileArg
       ) {
-        const file = args.filter((a) => !a.startsWith("-") && a !== "-").at(-1)!;
-        return ["ffs", "read", file];
+        return ["ffs", "read", fileArg];
       }
       return null;
     case "find":
-      // find <dir> … → fd (gitignore-aware; positional dir is the SAME shape).
+      // find → ffs find (ffs replaces BOTH `find` AND `fd`). ffs find takes a
+      // single positional <NEEDLE> — NO `-name`/`-type`/`-maxdepth` flags. Only
+      // the unambiguous bare-needle shape maps 1:1; anything with GNU flags
+      // runs as-is with a notice (the flags would break the rewrite).
+      if (
+        args.length >= 1 &&
+        !args.some((a) => a.startsWith("-"))
+      ) {
+        const needle = args.filter((a) => !a.startsWith("-"));
+        return ["ffs", "find", ...needle];
+      }
+      return null;
+    case "glob":
+      // glob <pattern> → ffs glob <pattern> (shell-style, gitignore-aware).
       if (args.length >= 1 && !args[0].startsWith("-"))
-        return ["fd", ...args];
+        return ["ffs", "glob", ...args];
       return null;
     case "grep":
     case "rg":
-      // grep <pattern> → ffs grep <pattern> --root <dir>; only when the arg
-      // shape is a bare pattern + optional dir (no -r flags needed; ffs greps
-      // recursively by default). Drops -i/-n? No — keep semantics: only map
-      // the truly-simple shape.
+      // grep/rg <pattern> → ffs grep <pattern> --root <dir>. ffs greps
+      // recursively+gitignore-aware by default (ripgrep semantics), so no
+      // -r/-R needed; only the truly-simple bare-pattern shape is mapped.
       if (args.length >= 1 && !args[0].startsWith("-")) {
         const pattern = args[0];
         const rest = args.slice(1).filter((a) => !a.startsWith("-"));
@@ -376,6 +392,7 @@ const WHY: Record<string, string> = {
   sort: "stream-clobbering pipeline. Sort in code, keep the raw evidence.",
   uniq: "collapses the record you'll need. Dedup in code, keep the trail.",
   wc: "counting lines is a signal you should read the file, not truncate it.",
+  glob: "shell glob in a bash loop re-walks the tree — ffs glob uses the index.",
   less: "paging hides the full context in a pipe. Read the file.",
   more: "same as less — read the file.",
   xxd: "hex dump pollutes the transcript. Decode the bytes in your debugger.",
@@ -415,6 +432,8 @@ const REPLACEMENTS: Record<string, string> = {
   sort: "sort in code (JS/Python), not by clobbering the command stream with a pipeline.",
   uniq: "dedupe in code; never pipe the raw stream through uniq.",
   wc: "ffs stats or the read tool; never `| wc -l` to count (that truncates the evidence trail).",
+  glob: "ffs glob <pattern>  # gitignore-aware, index-backed",
+    
   less: "read the file with the read tool (paging in a pipe hides the full context you need).",
   more: "read the file with the read tool.",
   xxd: "hex-decode in the code you're debugging; never dump bytes into the transcript.",
@@ -552,9 +571,8 @@ function parseArgs(args: string[]): {
     const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
     const rewritten = rewriteBanned(seg);
     if (rewritten && !isStrict()) {
-      process.stderr.write(
-        `[run-fast autonomous] '${base}' is banned — rewrote to: ${rewritten.join(" ")}\n`,
-      );
+      // INVISIBLE rewrite: swap the command and run it. The agent sees the
+      // sanctioned equivalent's output with no scolding banner.
       segments[si] = rewritten;
       continue;
     }
