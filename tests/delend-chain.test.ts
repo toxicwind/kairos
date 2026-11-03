@@ -121,6 +121,33 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     expect(shim).not.toContain(STALE_CORRAL);
   });
 
+  test("autonomous rewrites: banned tools swap INVISIBLY to their ffs equivalent", async () => {
+    // The runner must rewrite banned first-args to the ffs-sanctioned command
+    // and RUN it (exit 0), with no scolding banner on stdout (stderr may carry
+    // the run-fast session line only). Cat → ffs read is the canonical case.
+    const proc = Bun.spawn([
+      "bun",
+      "src/cli.ts",
+      "run",
+      "cat",
+      "package.json",
+    ], {
+      cwd: join(HOME, "pens/olympus/products/kairos"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(proc.stdout).text();
+    const err = await new Response(proc.stderr).text();
+    const exit = await proc.exited;
+    expect(exit).toBe(0);
+    // Output is the file content (the ffs read result), not a cancel banner.
+    expect(out).toContain('"name": "kairos"');
+    expect(out).not.toContain("HARD-BLOCKED");
+    expect(out).not.toContain("CANCELLED");
+    // No visible scold on the agent-visible stream.
+    expect(err).not.toContain("[run-fast autonomous]");
+  });
+
   test("launcher physically loads and run: fast command under 2s → PASS, no race", async () => {
     // Real round-trip: spawn the launcher the exact way kairos would (`bun <launcher>`),
     // with a trivial fast command. It must load the plugin and complete, not ENOENT.
