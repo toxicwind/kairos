@@ -1,12 +1,12 @@
 # kairos bash glue — GENERATED from pens/olympus/products/kairos/src/policy.ts (bun SSOT).
 # Regenerate: bun run pens/olympus/products/kairos/src/cli.ts init > pens/olympus/products/kairos/shim.sh
 _2S_GUARD_SRC="/home/toxic/pens/olympus/products/kairos/src/init.ts"
-RF_BIN="$HOME/pens/barn/estate-ops/run-fast"
+RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="${RF_QUIET:-1}"
 export RF_DEADLINE="${RF_DEADLINE:-4.0}"
-export DELEND_CODE_RACE="${DELEND_CODE_RACE:-$HOME/pens/barn/estate-ops/delend-code-race}"
+export DELEND_CODE_RACE="${DELEND_CODE_RACE:-/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts}"
 # rg agent-first defaults (dots file sat empty+unwired since 2026-10-19 —
 # kappa 2026-10-27: raw rg defaults caused megabyte line dumps on binaries
 # and inconsistent case handling across every agent shell)
