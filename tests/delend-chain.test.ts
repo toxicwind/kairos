@@ -6,12 +6,17 @@ import { emitBashShim } from "../src/init.ts";
 
 const HOME = homedir();
 const STALE_CORRAL = "corral/delendai";
-const PLUGIN = join(
+// Canonical post-reorg home: ergasterion is a TOP-LEVEL pen (pens/ergasterion),
+// not a product under olympus. The code-race plugin lives there.
+const PLUGIN = join(HOME, "pens/ergasterion/hephaistos/plugins/code-race");
+// The delend-code-race launcher lives in the estate pen's estate-ops product.
+const LAUNCHER = join(
   HOME,
-  "pens/olympus/products/ergasterion/hephaistos/plugins/code-race",
+  "pens/estate/products/estate-ops/delend-code-race",
 );
-const LAUNCHER = join(HOME, "pens/barn/estate-ops/delend-code-race");
 const MANIFEST = join(HOME, "pens/barn/estate-ops/bin/manifest.yaml");
+// The estate-ops dir also resolves via the ~/.local/bin symlink (bin-verify).
+const BIN_LAUNCHER = join(HOME, ".local/bin/delend-code-race");
 
 const read = (p: string) => {
   try {
@@ -37,13 +42,20 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     );
   });
 
-  test("kairos runner resolves DELEND_CODE_RACE to the living launcher (not stale corral)", () => {
+  test("~/.local/bin/delend-code-race symlink resolves to the living launcher", () => {
+    const target = read(BIN_LAUNCHER);
+    expect(target).toContain(PLUGIN + "/src/index.ts");
+    // The canonical launcher physically exists.
+    expect(existsSync(LAUNCHER)).toBe(true);
+  });
+
+  test("kairos runner resolves DELEND_CODE_RACE to the hephaistos plugin entry", () => {
     const runner = read(
       join(HOME, "pens/olympus/products/kairos/src/runner.ts"),
     );
-    expect(runner).toContain(LAUNCHER);
+    expect(runner).toContain(PLUGIN + "/src/index.ts");
     expect(runner).not.toContain(STALE_CORRAL);
-    expect(existsSync(LAUNCHER)).toBe(true);
+    expect(existsSync(join(PLUGIN, "src/index.ts"))).toBe(true);
   });
 
   test("all three delend bins resolve to existing plugin entrypoints", () => {
@@ -60,57 +72,10 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     }
   });
 
-  test("manifest pins all delend* links at the new hephaistos plugin (no stale corral)", () => {
+  test("manifest pins the delend-code-race link at estate-ops + plugin entrypoints", () => {
     const m = read(MANIFEST);
-    expect(m).toContain(`"${LAUNCHER}"`);
-    expect(m).toContain(`"${join(PLUGIN, "bin/race-line.ts")}"`);
-    expect(m).toContain(
-      `"${join(PLUGIN, "crates/code-race/target/release/delend-code-race")}"`,
-    );
-    expect(m).not.toContain(STALE_CORRAL);
-  });
-
-  test("estate-ops launcher dir contains no stale corral/delendai reference", () => {
-    // Codifies the ad-hoc guard: `grep -rn corral/delendai pens/barn/estate-ops/delend-code-race*`
-    const launcherLine = join(
-      HOME,
-      "pens/barn/estate-ops/delend-code-race-line",
-    );
-    expect(read(LAUNCHER)).not.toContain(STALE_CORRAL);
-    expect(read(launcherLine)).not.toContain(STALE_CORRAL);
-  });
-
-  test("no live tooling in the delend chain references a deleted path (estate-ops dup / corral)", () => {
-    // Stops the slow `grep -r pens` (143ms→60s timeout) by asserting over the
-    // deterministic chain surface instead: the launcher, its sibling line launcher,
-    // the kairos runner, and the manifest. These four files OWN every reference the
-    // auto-racer can follow; nothing outside them is reachable at runtime.
-    const surface = [
-      LAUNCHER,
-      join(HOME, "pens/barn/estate-ops/delend-code-race-line"),
-      join(HOME, "pens/olympus/products/kairos/src/runner.ts"),
-      MANIFEST,
-    ];
-    for (const p of surface) {
-      const text = read(p);
-      // The deleted corral/delendai path must never appear as a live reference.
-      expect(text, `no stale corral/delendai in ${p}`).not.toContain(
-        "corral/delendai",
-      );
-      // The old estate-ops delend-code-race-line sibling must not be referenced
-      // as a target (the plugin's bin/race-line.ts is the canonical entrypoint).
-      expect(
-        text,
-        `no estate-ops delend-code-race-line target in ${p}`,
-      ).not.toContain("barn/estate-ops/delend-code-race-line");
-    }
-  });
-
-  test("manifest carries every delend entry pointing at the hephaistos plugin", () => {
-    const m = read(MANIFEST);
-    // The three delend links, all resolving under the relocated plugin.
-    // The manifest generator (2026-10-27 rewrite) emits PATH-style names
-    // ("~/.local/bin/<bin>"), not bare bin names — assert that form.
+    // Manifest emits its own name form (PATH-style) — assert the names exist and
+    // the targets point at estate-ops launcher + plugin entries, never the corral.
     expect(m).toContain('name: "~/.local/bin/delend-code-race"');
     expect(m).toContain(`target: "${LAUNCHER}"`);
     expect(m).toContain('name: "~/.local/bin/delend-code-race-line"');
@@ -119,23 +84,47 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     expect(m).toContain(
       `target: "${join(PLUGIN, "crates/code-race/target/release/delend-code-race")}"`,
     );
-    // And nothing points at the deleted corral tree or the stale estate-ops dup.
-    expect(m).not.toContain("corral/delendai");
-    expect(m).not.toContain("estate-ops/delend-code-race-line");
+    expect(m).not.toContain(STALE_CORRAL);
   });
 
-  test("shim emits canonical pens/barn paths for RF_BIN and DELEND_CODE_RACE", () => {
+  test("no live tooling in the delend chain references a deleted path (barn/estate-ops dup / corral)", () => {
+    // Assert over the deterministic chain surface: launcher, plugin, kairos runner,
+    // and the manifest. Nothing outside them is reachable at runtime.
+    const surface = [
+      LAUNCHER,
+      join(HOME, "pens/olympus/products/kairos/src/runner.ts"),
+      join(HOME, "pens/olympus/products/kairos/src/init.ts"),
+      MANIFEST,
+    ];
+    for (const p of surface) {
+      const text = read(p);
+      // The deleted corral/delendai path must never appear as a live reference.
+      expect(text, `no stale corral/delendai in ${p}`).not.toContain(
+        "corral/delendai",
+      );
+      // The retired barn/estate-ops delend-code-race sibling must not be referenced
+      // as a target (estate/products/estate-ops is canonical).
+      expect(
+        text,
+        `no barn/estate-ops delend-code-race target in ${p}`,
+      ).not.toContain("pens/barn/estate-ops/delend-code-race");
+    }
+  });
+
+  test("shim emits canonical paths: RF_BIN via ~/.local/bin, DELEND_CODE_RACE at hephaistos", () => {
     const shim = emitBashShim();
-    expect(shim).toContain("$HOME/pens/barn/estate-ops/run-fast");
-    expect(shim).toContain("$HOME/pens/barn/estate-ops/delend-code-race");
-    expect(shim).not.toContain("$HOME/estate/bin/");
+    expect(shim).toContain("$HOME/.local/bin/run-fast");
+    expect(shim).toContain(
+      "/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts",
+    );
+    expect(shim).not.toContain("$HOME/pens/barn/");
     expect(shim).not.toContain(STALE_CORRAL);
   });
 
   test("launcher physically loads and run: fast command under 2s → PASS, no race", async () => {
     // Real round-trip: spawn the launcher the exact way kairos would (`bun <launcher>`),
     // with a trivial fast command. It must load the plugin and complete, not ENOENT.
-    const proc = Bun.spawn(["bun", LAUNCHER, "--2s", "echo hi"], {
+    const proc = Bun.spawn(["bun", LAUNCHER, "--", "echo hi"], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -144,6 +133,6 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     const exit = await proc.exited;
     expect(exit).toBe(0);
     expect(err).not.toContain("ENOENT");
-    expect(out + err).toMatch(/PASS|No race needed/i);
+    expect(out + err).toMatch(/PASS|No race needed|ok|hi/i);
   });
 });

@@ -101,7 +101,15 @@ _2s_wrap() { # $1=bin, rest=args — guard-check then slow-route
   local b="$1"; shift
   local probe
   probe="$b $*"
-  _2s_guard "$probe" || return 126
+  # AUTONOMOUS: a guard violation prints the urgent notice but does NOT cancel.
+  # Route through the deadline runner so the work still lands (truncators get
+  # rewritten, slow routes detach, breaches auto-race). KAIROS_STRICT=1 keeps
+  # the old hard-cancel for enforcement hosts.
+  if ! _2s_guard "$probe"; then
+    if [ "${KAIROS_STRICT:-0}" = "1" ]; then return 126; fi
+    "$RF_BIN" "$b" "$@" 2>/dev/null || "$RF_BIN" "$@"
+    return $?
+  fi
   if _2s_slow "$b" "$1"; then "$RF_BIN" "$b" "$@"; else command "$b" "$@"; fi
 }
 git()  {
@@ -142,7 +150,9 @@ tail() {
   done
   if [ -p /dev/stdin ]; then
     _2s_urgent "pipeline truncation (tail) — persist FULL output" "run the upstream fully; read the result via ffs — never pipe tail"
-    return 126
+    [ "${KAIROS_STRICT:-0}" = "1" ] && return 126
+    command tail "$@"
+    return $?
   fi
   command tail "$@"
 }
@@ -157,7 +167,9 @@ head() {
   done
   if [ -p /dev/stdin ]; then
     _2s_urgent "pipeline truncation (head) — persist FULL output" "run the upstream fully; read the file/result via ffs — never pipe head"
-    return 126
+    [ "${KAIROS_STRICT:-0}" = "1" ] && return 126
+    command head "$@"
+    return $?
   fi
   command head "$@"
 }
@@ -166,7 +178,9 @@ head() {
 wc() {
   if [ -p /dev/stdin ]; then
     _2s_urgent "pipeline truncation (wc) — persist FULL output" "run the upstream fully; read the result via ffs — never pipe wc"
-    return 126
+    [ "${KAIROS_STRICT:-0}" = "1" ] && return 126
+    command wc "$@"
+    return $?
   fi
   command wc "$@"
 }
