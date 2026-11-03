@@ -25,9 +25,7 @@ export function emitBashShim(): string {
   *"2>&1"*)
       _2s_urgent "'2>&1' merges stderr into stdout" "keep streams separate — no &2 merges"; return 1 ;;
   *[[:space:]]sleep[[:space:]][0-9]*)
-      _2s_urgent "blocking sleep" "readiness-check or background it — never sleep to wait"; return 1 ;;
-  *[[:space:]]head[[:space:]]-[[:space:]]*c*|*[[:space:]]tail[[:space:]]-[[:space:]]*c*)
-      _2s_urgent "byte truncation (head/tail -c)" "persist full output; slice in code only"; return 1 ;;`;
+      _2s_urgent "blocking sleep" "readiness-check or background it — never sleep to wait"; return 1 ;;`;
 
   return `# kairos bash glue — GENERATED from pens/olympus/products/kairos/src/policy.ts (bun SSOT).
 # Regenerate: bun run pens/olympus/products/kairos/src/cli.ts init > pens/olympus/products/kairos/shim.sh
@@ -65,6 +63,10 @@ fi
 export KAIROS_SHIM_MODE=agent
 
 _2s_urgent() {
+  # MOSTLY INVISIBLE: kairos fixes, it doesn't scold. The banner only shows in
+  # diagnostics (KAIROS_DEBUG=1). Default: silent — the work still happens via
+  # run-fast routing, the transcript just stays clean.
+  [ "\${KAIROS_DEBUG:-0}" = "1" ] || return 0
   echo "════ [kairos GUARD — URGENT, CANCELLED] ════"
   echo "  $1"
   echo "  MUST DO: $2"
@@ -136,43 +138,10 @@ uv()   { if _2s_slow uv "$1";   then "$RF_BIN" uv "$@";   else command uv "$@"; 
 gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@";   fi; }
 go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
 timeout() { local _t="\${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; if [ -n "\${RUN_FAST_ACTIVE:-}" ]; then command timeout "\$_t" "$@"; return; fi; "$RF_BIN" --deadline "\$_t" "$@"; }
-# head/tail doctrine wrappers: FILE-truncation → route to ffs (full read);
-# pipeline truncation (cmd | head, no FILE) → silent pass-through. The full
-# output is still captured by the tool transcript; a display window is not a
-# correctness violation, so it must not scold or cancel.
-# bash's DEBUG trap reports each pipeline element separately (head -N, no
-# pipe char), so the trap's | head pattern can never match a real pipeline —
-# the deterministic handling lives HERE in the wrapper, not the trap. -f follow
-# is a live stream (monitoring), not truncation, and is passed through.
-tail() {
-  [ "$1" = "-f" ] && { command tail "$@"; return $?; }
-  local _a
-  for _a in "$@"; do
-    [ "$_a" != "-n" ] && [ "\${_a#-}" = "$_a" ] && [ -f "$_a" ] && {
-      _2s_urgent "file truncation (tail $_a)" "ffs read $_a --full — full tail is the end of a full read"
-      command ffs read "$_a" --full 2>/dev/null || command tail "$@"
-      return $?
-    }
-  done
-  command tail "$@"
-}
-head() {
-  local _a
-  for _a in "$@"; do
-    [ "$_a" != "-n" ] && [ "\${_a#-}" = "$_a" ] && [ -f "$_a" ] && {
-      _2s_urgent "file truncation (head $_a)" "ffs read $_a — reads the FULL file (1M context); no reason to truncate"
-      command ffs read "$_a" 2>/dev/null || command head "$@"
-      return $?
-    }
-  done
-  command head "$@"
-}
-# wc doctrine wrapper: piped cmd | wc -l is a display count, not a
-# correctness violation — silent pass-through. Legit file counting (wc -l FILE)
-# also passes.
-wc() {
-  command wc "$@"
-}
+# head/tail/wc are FULLY invisible — no wrappers, no bans, no ffs routing. They
+# run the real binaries. Display truncation (head/tail/wc) is the agent's call;
+# full output is live-persisted to the session file regardless, so nothing is
+# ever lost. kairos does not scold or cancel these.
 
 # Deliberately DO NOT export -f the wrapper functions. Exporting head/tail/
 # wc/git/bun/... leaks them into the env of every child and interactive shell

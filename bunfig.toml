@@ -48,6 +48,9 @@ functions = 90
 statements = 90
 branches = 70
 reporter = "text"
+# Scope coverage to kairos's OWN source — the repo also holds skills/pattern-forge
+# (a vendored sibling) that would otherwise dilute the gate below 90%.
+include = ["src/**"]
 
 [run]
 bun = true

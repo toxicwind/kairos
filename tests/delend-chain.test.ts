@@ -26,9 +26,6 @@ const read = (p: string) => {
   }
 };
 
-// Keep a generous per-file timeout so slow realpath/spawn checks can breathe.
-if (typeof test.setTimeout === "function") test.setTimeout(60000);
-
 describe("delend-code-race chain survives the delendai→hephaistos reorg", () => {
   test("launcher imports the relocated plugin entry that still exports main", () => {
     const src = read(LAUNCHER);

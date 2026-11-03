@@ -14,11 +14,20 @@ describe("policy", () => {
     expect(firstBan("echo hi >/dev/null")?.reason).toContain("/dev/null");
     expect(firstBan("cmd 2>/dev/null")?.reason).toContain("/dev/null");
   });
-  test("bans | true, 2>&1, pipe truncation, sleep", () => {
+  test("bans | true, 2>&1, sleep", () => {
     expect(firstBan("make | true")).toBeTruthy();
     expect(firstBan("cmd 2>&1 | foo")).toBeTruthy();
-    expect(firstBan("cmd | head -20")).toBeTruthy();
     expect(firstBan("sleep 5 && cmd")).toBeTruthy();
+  });
+  test("display truncation (| head/| tail/| wc, head -c, tail -c) is NOT banned", () => {
+    // kairos is mostly invisible: display windows and byte slices are the
+    // agent's call, never scolded or cancelled. Full output is still
+    // live-persisted to the session file, so nothing is lost.
+    expect(firstBan("cmd | head -20")).toBeNull();
+    expect(firstBan("cmd | tail -5")).toBeNull();
+    expect(firstBan("cmd | wc -l")).toBeNull();
+    expect(firstBan("head -c 100 file")).toBeNull();
+    expect(firstBan("tail -c 50 file")).toBeNull();
   });
   test("allows clean commands", () => {
     expect(firstBan("git status --porcelain")).toBeNull();
@@ -82,6 +91,15 @@ describe("policy", () => {
     expect(deadlineFor(["git", "status"], 4.0)).toBe(20);
     expect(deadlineFor(["echo", "hi"], 4.0)).toBe(4.0);
   });
+  test("deadlineFor skips git -C flag+value to find the subcommand", () => {
+    // `git -C /path status` → effective sub is status (bumped to 20s), not the path.
+    expect(deadlineFor(["git", "-C", "/tmp", "status"], 4.0)).toBe(20);
+    expect(deadlineFor(["git", "--git-dir", "/x", "push"], 4.0)).toBe(600);
+    expect(deadlineFor(["git", "--work-tree", "/x", "pull"], 4.0)).toBe(600);
+  });
+  test("deadlineFor honors bin-level bumps (gh)", () => {
+    expect(deadlineFor(["gh", "repo", "view"], 4.0)).toBe(120);
+  });
 });
 
 describe("kairos shim canonical-path emission", () => {
@@ -105,22 +123,17 @@ describe("kairos shim canonical-path emission", () => {
     expect(shim).not.toContain("estate/ranch");
   });
 
-  test("shim head/tail doctrine wrappers route files to ffs and cancel pipes", () => {
-    // Regression: agents kept using head/tail because (1) the wrappers only
-    // matched `-n N FILE` and (2) the DEBUG trap can't see piped segments.
-    // The wrappers must reference ffs for file reads and cancel piped streams.
-    expect(shim).toMatch(/command ffs read/); // file truncation → ffs
-    expect(shim).toMatch(/never pipe head/); // pipe-truncation doctrine
-    expect(shim).toMatch(/never pipe tail/);
-    expect(shim).toMatch(/\[ -p \/dev\/stdin \]/); // pipe detection lives in the wrapper
-    // The wrapper must be self-contained (locally defined loop var, no ghosts).
-    expect(shim).toMatch(/for _a in "\$@"/);
-    // `-f` (follow) is monitoring, not truncation — must pass through unchanged.
-    expect(shim).toMatch(/\[ "\$1" = "-f" \]/);
-    // wc is also banned for pipelines (head/tail/wc) — must have a wrapper too,
-    // not just head/tail. Legit file counting (wc -l FILE) passes through.
-    expect(shim).toMatch(/never pipe wc/);
-    expect(shim).toMatch(/\bwc\(\)/);
+  test("shim head/tail/wc are FULLY invisible — no wrappers, no bans, no ffs routing", () => {
+    // kairos must not intercept head/tail/wc at all: they run the real binaries.
+    // Display truncation is the agent's call; full output is live-persisted to
+    // the session file regardless, so nothing is lost.
+    expect(shim).not.toMatch(/^head\(\)/);
+    expect(shim).not.toMatch(/^tail\(\)/);
+    expect(shim).not.toMatch(/^wc\(\)/);
+    // No byte-truncation banCase for head/tail -c either.
+    expect(shim).not.toMatch(/byte truncation/);
+    // The comment documents the invisibility.
+    expect(shim).toMatch(/FULLY invisible/);
   });
 
   test("shim preserves the full guard family for agent-shell snapshots", () => {

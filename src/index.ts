@@ -8,3 +8,5 @@ export {
   type KairosVerdict,
 } from "./guard.ts";
 export { isSlow, SLOW_ROUTES, DEADLINE_BUMPS } from "./policy.ts";
+export { shellQuoteCmd, segmentsToCmd, redactCmd } from "./quote.ts";
+export { emitBashShim } from "./init.ts";

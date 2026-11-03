@@ -1,17 +1,17 @@
 /**
- * runner.ts — run-fast: the 2s deadline wrapper. VERBOSE, SCOLDS the agent.
+ * runner.ts — run-fast: the 2s deadline wrapper. MOSTLY INVISIBLE.
  *
  * Subcommands:
- *   run <cmd…>          the ONLY way commands should run. 2.0s cap, no override.
+ *   run <cmd…>          the ONLY way commands should run. Deadline-capped.
  *   attach <id>         attach to live/historic session
  *   logs [id]           session output
  *   list                list sessions
  *   purge [pattern]     remove sessions
  *   cancel <id>         kill session
  *
- * The 2.0s deadline is FIXED. There is NO --deadline flag. If you think a
- * command needs more than 2s, you are WRONG — you must race a faster
- * alternative or background it. Never wait longer. This is the LAW.
+ * kairos fixes, it doesn't scold: slow routes detach, banned tools rewrite
+ * invisibly, breaches auto-race. The agent's transcript stays clean — all
+ * diagnostic banners are gated behind KAIROS_DEBUG=1 (see notice.ts).
  *
  * Inline syntax in run args:
  *   FOO=bar              → env var
@@ -19,22 +19,28 @@
  *   --id name            → session name
  */
 import { spawn } from "bun";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-  openSync,
-  writeSync,
-  closeSync,
-} from "node:fs";
-import { join } from "node:path";
+import { openSync, writeSync, closeSync, readFileSync, mkdirSync } from "node:fs";
 import { effectiveDeadline, logVerdict } from "./project-policy.ts";
 import { deadlineFor, shouldDetach } from "./policy.ts";
+import { shellQuoteCmd, segmentsToCmd } from "./quote.ts";
+import {
+  bannedAsFirst,
+  rewriteBanned,
+  isStrict,
+  why,
+  replacementFor,
+} from "./rewrite.ts";
+import {
+sessionDir,
+  getSessions,
+  writeMeta,
+  readMeta,
+  deleteSession,
+  genId,
+  outPath,
+} from "./session.ts";
+import { scold, urgentBreach, notice, sessionLine } from "./notice.ts";
 
-const SESSION_DIR = join(process.env.HOME || "/tmp", ".run-fast");
 const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
 const DELEND_CODE_RACE =
   process.env.DELEND_CODE_RACE ||
@@ -46,413 +52,9 @@ export interface RunResult {
   exitCode: number;
 }
 
-const scold = (msg: string) => {
-  process.stderr.write(
-    `\n  ╔══════════════════════════════════════════════════════════════╗\n  ║                 ⚠ RUN-FAST RULE VIOLATION ⚠                    ║\n  ╚══════════════════════════════════════════════════════════════╝\n  ${msg}\n\n`,
-  );
-};
-
-/** Redact obvious secrets from a command line before it reaches a notice/log. */
-const REDACT = "*****";
-
-/**
- * Losslessly quote an argv array back into a single re-runnable shell line.
- *
- * Unlike `redactCmd` (a flattened, truncated, secret-masked DIAGNOSTIC string),
- * this preserves every argument boundary so a fragmented `-c` program, inline
- * `FOO=bar` env assignment, glob, or quoted substring survives a `bash -c`
- * round-trip. run-fast hands THIS to delend-code-race so the auto-racer races
- * the real failing command, not a phantom.
- */
-export function shellQuoteCmd(args: string[]): string {
-  return args
-    .map((a) =>
-      /^[A-Za-z0-9_./:=-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`,
-    )
-    .join(" ");
-}
-
-/**
- * Quote a full pipeline (segments + operators) into one lossless bash line.
- *
- * The naive `a.includes(" ") ? '"'+a+'"' : a` join destroyed arguments
- * containing double quotes (e.g. `--jq '.x + "|"'`) by stripping the inner
- * quotes, and expanded `$`/backticks inside double-quoted args. Every
- * execution path must build its bash line through THIS, never by hand.
- */
-export function segmentsToCmd(
-  segments: string[][],
-  ops: Array<"&" | "&&" | ";" | "|"> = [],
-): string {
-  if (!segments.length) return "true";
-  let line = shellQuoteCmd(segments[0]);
-  for (let i = 1; i < segments.length; i++) {
-    line += ` ${ops[i - 1] ?? "|"} ${shellQuoteCmd(segments[i])}`;
-  }
-  return line;
-}
-
-export function redactCmd(args: string[]): string {
-  return (
-    args
-      .map((a) => {
-        // KEY=value or api_key=value / token=… / secret=… / password=… / _key=…
-        const kv =
-          /^([A-Za-z_][A-Za-z0-9_-]*(?:api[_k]ey|token|secret|password|_key)=)(.+)$/i.exec(
-            a,
-          );
-        if (kv) return `${kv[1]}${REDACT}`;
-        // Header-style: Authorization: Bearer … / X-API-Key: … / x-api-key: …
-        const hdr =
-          /^(Authorization|Bearer|X-API-Key|x-api-key)\s*:\s*\S.+$/i.exec(a);
-        if (hdr)
-          return a.replace(/^(.*?)(:|Bearer)\s*\S.+$/i, `$1$2 ${REDACT}`);
-        // Bare atr_/sk- style key tokens (Atria, OpenAI, etc.)
-        if (/^(atr|sk|ghp|gho|gsk|key)_[A-Za-z0-9]+$/.test(a)) return REDACT;
-        return a;
-      })
-      .slice(0, 8)
-      .join(" ")
-      // Sweep any leftovers anywhere in the joined line.
-      .replace(/Bearer\s+\S+/gi, `Bearer ${REDACT}`)
-      .replace(
-        /(api_key|apiKey|token|secret|password)=[^\s"']+/gi,
-        `$1=${REDACT}`,
-      )
-  );
-}
-
-const urgentBreach = (
-  cmd: string[],
-  elapsedS: number,
-  cwd: string = process.cwd(),
-) => {
-  const redacted = redactCmd(cmd);
-  process.stdout.write(
-    `\n════ [kairos 4s BREACH — URGENT, AUTO-RACING VIA delend-code-race] ════\n` +
-      `  '${redacted}' took ${elapsedS.toFixed(3)}s > ${HARD_DEADLINE.toFixed(1)}s deadline. FAILED + CANCELLED.\n` +
-      `  YOU VIOLATED THE 4-SECOND RULE. Auto-triggering delend-code-race...\n` +
-      `═══════════════════════════════════════\n`,
-  );
-  if (
-    existsSync(DELEND_CODE_RACE) &&
-    process.env.DELEND_CODE_RACE_ACTIVE !== "1"
-  ) {
-    try {
-      // Pass the LOSSESS shell-quoted real command to code-race so it can
-      // reproduce the actual breach (quoting/`-c` programs/env/globs survive).
-      // `redacted` stays for the on-screen notice only — never for execution.
-      const r = Bun.spawnSync(
-        ["bun", DELEND_CODE_RACE, "--", shellQuoteCmd(cmd)],
-        {
-          cwd,
-          env: {
-            ...process.env,
-            DELEND_CODE_RACE_ACTIVE: "1",
-            RUN_FAST_ACTIVE: "1",
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-        },
-      );
-      const out = new TextDecoder().decode(r.stdout).trim();
-      if (out) process.stdout.write(`${out}\n`);
-    } catch {}
-  }
-};
-
-const scoldNotRunFast = (extra: string) => {
-  scold(
-    `You are NOT using run-fast for every command. This is the 2-second rule.\n` +
-      `  EVERY command MUST go through run-fast:  run-fast <cmd…>\n` +
-      `  ${extra}\n` +
-      `  If you used a bare tool (bash/read/grep/glob/write) without run-fast, that is a\n` +
-      `  violation. The ONLY exempt commands are git push/commit (explicit request) and\n` +
-      `  ffs read (budget-aware code reading), and even those should prefer run-fast.\n` +
-      `  Rerun this through:  run-fast <the same command>`,
-  );
-};
-
-// ── Session store ──
-
-function metaPath(id: string) {
-  return join(SESSION_DIR, `${id}.json`);
-}
-function outPath(id: string) {
-  return join(SESSION_DIR, `${id}.out`);
-}
-
-function getSessions(): {
-  id: string;
-  cmd: string;
-  startTime: number;
-  endTime: number | null;
-  exitCode: number | null;
-  state: "running" | "done";
-}[] {
-  if (!existsSync(SESSION_DIR)) return [];
-  const now = Date.now();
-  const sessions: {
-    id: string;
-    cmd: string;
-    startTime: number;
-    endTime: number | null;
-    exitCode: number | null;
-    state: "running" | "done";
-  }[] = [];
-  for (const f of readdirSync(SESSION_DIR)) {
-    if (!f.endsWith(".json")) continue;
-    // A session killed mid-write (crash/OOM/SIGKILL under the deadline wrapper)
-    // can leave an empty or truncated meta file. Do not let one corrupt row
-    // take down `list`/`purge` and strand the whole 100k-file archive.
-    let raw = "";
-    try {
-      raw = readFileSync(join(SESSION_DIR, f), "utf-8");
-      if (!raw.trim()) continue;
-      const parsed = JSON.parse(raw) as {
-        id?: string;
-        cmd?: string;
-        startTime?: number;
-        endTime?: number | null;
-        exitCode?: number | null;
-        state?: "running" | "done";
-      };
-      if (
-        !parsed ||
-        typeof parsed.id !== "string" ||
-        parsed.id !== f.replace(/\.json$/, "")
-      )
-        continue;
-      sessions.push({
-        id: parsed.id,
-        cmd: String(parsed.cmd ?? ""),
-        startTime:
-          typeof parsed.startTime === "number" ? parsed.startTime : now,
-        endTime: parsed.endTime == null ? null : Number(parsed.endTime),
-        exitCode: parsed.exitCode == null ? null : Number(parsed.exitCode),
-        state:
-          parsed.state === "running" || parsed.state === "done"
-            ? parsed.state
-            : "done",
-      });
-    } catch {
-      // Skip corrupt meta files so a single bad row never breaks the archive.
-      continue;
-    }
-  }
-  return sessions.sort((a, b) => a.startTime - b.startTime);
-}
-
-function writeMeta(
-  id: string,
-  m: {
-    id: string;
-    cmd: string;
-    startTime: number;
-    endTime: number | null;
-    exitCode: number | null;
-    state: "running" | "done";
-  },
-) {
-  mkdirSync(SESSION_DIR, { recursive: true });
-  writeFileSync(metaPath(id), JSON.stringify(m));
-}
-
-function readMeta(id: string) {
-  try {
-    return JSON.parse(readFileSync(metaPath(id), "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-function deleteSession(id: string) {
-  try {
-    rmSync(metaPath(id));
-    rmSync(outPath(id));
-  } catch {}
-}
-
-function genId(name?: string) {
-  if (name) return `rf-${name}`;
-  return "rf-" + crypto.randomUUID().slice(0, 8);
-}
-
-// Banned first-arg: these have a faster/correct replacement that run-fast NOT interposes for.
-// The point of run-fast is to CORRECT you before you run something slow — so we hard-block these
-// and tell you the right tool.
-const bannedAsFirst: Set<string> = new Set([
-  "find",
-  "cat",
-  "grep",
-  "rg",
-  "sed",
-  "awk",
-  "cut",
-  "sort",
-  "uniq",
-  "less",
-  "more",
-  "xxd",
-  "hexdump",
-  "od",
-  "base64",
-  "tee",
-  "tr",
-  "paste",
-  "join",
-  "glob",
-]);
-
-/** Identify and rewrite a banned command into its sanctioned 1:1 equivalent.
-
-Rewrite rules are LOSSY-SAFE: only when the arg shape is unambiguous we map
-to ffs; otherwise the command runs as-is with a notice (see parseArgs).
-`KAIROS_STRICT=1` disables autonomy and hard-cancels instead.
-*/
-function isStrict(): boolean {
-  return process.env.KAIROS_STRICT === "1";
-}
-
-/**
- * 1:1 autonomous rewrites for banned commands where the sanctioned semantics
- * are identical. Returns null when no safe rewrite exists — the caller runs
- * the original with a notice instead of cancelling (unless KAIROS_STRICT).
- */
-function rewriteBanned(seg: string[]): string[] | null {
-  const base = seg[0]?.split("/").pop() ?? "";
-  const args = seg.slice(1);
-  const fileArg = args.filter((a) => !a.startsWith("-") && a !== "-").at(-1);
-  switch (base) {
-    case "cat":
-    case "less":
-    case "more":
-      // <file> → ffs read <file> (same content; less/more are paging on a
-      // single file — ffs read is the token-budgeted whole read).
-      if (args.length === 1 && !args[0].startsWith("-") && fileArg)
-        return ["ffs", "read", fileArg];
-      return null;
-    case "head":
-    case "tail":
-      // head/tail <file> (-n N optional) → ffs read <file> (full read; the
-      // window is a display concern, the read is wholesale). Only when a plain
-      // file operand exists and no -c is present (byte truncation ≠ read).
-      if (
-        !args.some((a) => a === "-c" || a === "--bytes" || a === "-f") &&
-        fileArg
-      ) {
-        return ["ffs", "read", fileArg];
-      }
-      return null;
-    case "find":
-      // find → ffs find (ffs replaces BOTH `find` AND `fd`). ffs find takes a
-      // single positional <NEEDLE> — NO `-name`/`-type`/`-maxdepth` flags. Only
-      // the unambiguous bare-needle shape maps 1:1; anything with GNU flags
-      // runs as-is with a notice (the flags would break the rewrite).
-      if (
-        args.length >= 1 &&
-        !args.some((a) => a.startsWith("-"))
-      ) {
-        const needle = args.filter((a) => !a.startsWith("-"));
-        return ["ffs", "find", ...needle];
-      }
-      return null;
-    case "glob":
-      // glob <pattern> → ffs glob <pattern> (shell-style, gitignore-aware).
-      if (args.length >= 1 && !args[0].startsWith("-"))
-        return ["ffs", "glob", ...args];
-      return null;
-    case "grep":
-    case "rg":
-      // grep/rg <pattern> → ffs grep <pattern> --root <dir>. ffs greps
-      // recursively+gitignore-aware by default (ripgrep semantics), so no
-      // -r/-R needed; only the truly-simple bare-pattern shape is mapped.
-      if (args.length >= 1 && !args[0].startsWith("-")) {
-        const pattern = args[0];
-        const rest = args.slice(1).filter((a) => !a.startsWith("-"));
-        const root = rest.at(-1);
-        return ["ffs", "grep", pattern, "--root", root ?? "."];
-      }
-      return null;
-    default:
-      return null;
-  }
-}
-
-const WHY: Record<string, string> = {
-  find: "walks the whole tree every time → O(entries), GB of stat calls. fd/ffs use gitignore + an index.",
-  grep: "ripgrep-fresh re-scan of a huge tree is wasteful when the ffs index already has the answer.",
-  rg: "you invoked it bare — route content search through ffs grep (index) or scope rg to a single dir.",
-  cat: "dumps a raw file into the transcript, flooding context. The read tool outlines/budgets.",
-  head: "truncates a file's evidence. You have 1M context — read the FULL thing.",
-  tail: "you cut the head off the evidence. Read the full file.",
-  sed: "regex mangle on your source. ast-grep rewrites STRUCTURALLY on syntax, which is the only safe rewrite.",
-  awk: "text-destroyer in a shell one-liner. Do the parse in code, or use ast-grep.",
-  cut: "you sliced away columns you'll want 3 lines later. Persist full output.",
-  sort: "stream-clobbering pipeline. Sort in code, keep the raw evidence.",
-  uniq: "collapses the record you'll need. Dedup in code, keep the trail.",
-  wc: "counting lines is a signal you should read the file, not truncate it.",
-  glob: "shell glob in a bash loop re-walks the tree — ffs glob uses the index.",
-  less: "paging hides the full context in a pipe. Read the file.",
-  more: "same as less — read the file.",
-  xxd: "hex dump pollutes the transcript. Decode the bytes in your debugger.",
-  hexdump: "byte-dump noise. Decode in code.",
-  od: "octal/float inspect noise. Inspect in code.",
-  base64: "obfuscates data in the transcript. Decode in code.",
-  tee: "copies output you then inspect only partially. run-fast sessions persist full output.",
-  tr: "regex transliterate mangling. Use ast-grep for structural transform.",
-  paste: "column-join in a shell is a fragile hack. Do it in code.",
-  join: "relation-join in shell is error-prone. Do it in code.",
-};
-
-const REPLACEMENTS: Record<string, string> = {
-  find: [
-    "fd <needle> <dir?>   # fast, gitignore-aware replacement for 'find'",
-    "   or: ffs find <needle> --root <dir>  # estate index",
-    "NEVER walk the whole disk: scope to a dir, or use the on-disk ffs index.",
-  ].join("\n      "),
-  grep: [
-    "rg <pattern> <dir?>  # fast, respects .gitignore",
-    "   or: ffs grep <regex> --root <dir> + --limit N  # index-backed, cheap",
-    "NEVER 'grep -r' a huge tree; prefer rg or the ffs index.",
-  ].join("\n      "),
-  rg: [
-    "ffs grep <regex> --root <dir>  # use the on-disk index instead of a fresh walk",
-    "   (rg is fine for scoped, single-dir searches).",
-  ].join("\n      "),
-  cat: "read <path> via the read tool — 1M context, budget-aware outline by default, never truncated.",
-  head: "read <path> via the read tool — reads the FULL file (1M context); there is NO reason to truncate.",
-  tail: "read <path> via the read tool — full tail is just the end of a full read.",
-  sed: [
-    "ast-grep scan -p '<pattern>' --rewrite '<replacement>' -l ts <dir>  # tree-sitter STRUCTURAL rewrite",
-    "   ast-grep works on syntax, not regex — it is the only safe in-place rewrite.",
-  ].join("\n      "),
-  awk: "ast-grep (structural) or the read tool; awk is a text destroyer you must not use.",
-  cut: "persist FULL output (run-fast session file); slice columns in code, never in the transcript.",
-  sort: "sort in code (JS/Python), not by clobbering the command stream with a pipeline.",
-  uniq: "dedupe in code; never pipe the raw stream through uniq.",
-  wc: "ffs stats or the read tool; never `| wc -l` to count (that truncates the evidence trail).",
-  glob: "ffs glob <pattern>  # gitignore-aware, index-backed",
-    
-  less: "read the file with the read tool (paging in a pipe hides the full context you need).",
-  more: "read the file with the read tool.",
-  xxd: "hex-decode in the code you're debugging; never dump bytes into the transcript.",
-  hexdump: "hex-decode in code.",
-  od: "octal/decimal inspect in code.",
-  base64:
-    "base64-decode in code; never shell out a decode that pollutes output.",
-  tee: [
-    "persist FULL output via run-fast's session file (run-fast <cmd> then run-fast logs <id>),",
-    "   or the tool's own --output/--outfile flag — never tee a transcript.",
-  ].join("\n      "),
-  tr: "ast-grep for structural transform; never a regex transliteration pipeline.",
-  paste: "do the column-join in code.",
-  join: "do the relation join in code.",
-};
-
 async function streamReader(
-  stream: ReadableStream<Uint8Array> | null,
-  sink: { out: string; write: (t: string) => void },
+  stream: ReadableStream<Uint8Array> | null | undefined,
+  sink: { write: (t: string) => void },
 ): Promise<void> {
   if (!stream) return;
   const reader = stream.getReader();
@@ -466,7 +68,6 @@ async function streamReader(
       } catch {
         break;
       }
-      sink.out += t;
     }
   } finally {
     reader.releaseLock();
@@ -474,13 +75,13 @@ async function streamReader(
 }
 
 function parseArgs(args: string[]): {
-  env: Record<string, string>;
+  env: Record<string, string | undefined>;
   cwd: string;
   segments: string[][];
   ops: Array<"|" | "&&" | ";">;
   sessionName: string | undefined;
 } {
-  const env: Record<string, string> = { ...process.env };
+  const env: Record<string, string | undefined> = { ...process.env };
   // Re-entry guard: mark every child as ALREADY running under run-fast so the
   // bash-2s-shim wrappers (git/gh/bun/npm/…) use the real binary instead of
   // re-routing through run-fast. Without this, a detached or foreground child
@@ -545,50 +146,48 @@ function parseArgs(args: string[]): {
   if (segments.length === 1 && ops.length === 0) {
     const cmd = segments[0];
     // Shell-compatible mode: run-fast -lc '<command>' — deadline-wrap through real bash.
+    // Only match the shell flag at index 0 (the command position). A `-l` deep
+    // in the args (e.g. `wc -l file`, `ls -l`) is a real command flag, not the
+    // bash login flag — matching it there would corrupt the command.
     const dashIdx = cmd.findIndex(
-      (c) => c === "-c" || c === "-lc" || c === "-l" || c === "--login",
+      (c, i) => i === 0 && (c === "-c" || c === "-lc" || c === "-l" || c === "--login"),
     );
     if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
-      // Permanent fix (2026-10-20): use `bash -c`, NOT `bash -lc`, for the
-      // coerced one-shot shell. `-lc` sources the login shell, which loads the
-      // estate `.bashrc` wrappers that re-route `git`/`kairos` — so a wrapped
-      // `kairos run -lc 'git rebase'` spawned an unbounded recursion of
-      // `bun run kairos ... git ...` (~hundreds at 100% CPU). The child already
-      // inherits run-fast's env; a login shell only re-triggers the wrappers.
-      // Use `bash -c` → the real binary is reached, no re-entry.
+      // Use `bash -c`, NOT `bash -lc`, for the coerced one-shot shell. `-lc`
+      // sources the login shell, which loads the estate `.bashrc` wrappers that
+      // re-route `git`/`kairos` — so a wrapped `kairos run -lc 'git rebase'`
+      // spawned an unbounded recursion of `bun run kairos ... git ...`. The
+      // child already inherits run-fast's env; a login shell only re-triggers
+      // the wrappers. Use `bash -c` → the real binary is reached, no re-entry.
       segments[0] = ["/bin/bash", "-c", cmd.slice(dashIdx + 1).join(" ")];
     }
   }
 
   // Ban check on EVERY segment's first command — AUTONOMOUS (fix, don't scold):
   // rewrite the offending tool to its sanctioned equivalent and RUN it, so the
-  // agent's work never dead-ends on a message. `KAIROS_STRICT=1` restores the
-  // old hard-cancel for hosts that want enforcement, not autonomy.
+  // agent's work never dead-ends on a message. Silent when a rewrite exists.
+  // `KAIROS_STRICT=1` restores the old hard-cancel for hosts that want
+  // enforcement, not autonomy.
   for (let si = 0; si < segments.length; si++) {
     const seg = segments[si];
     const base = seg[0]?.split("/").pop() ?? "";
     if (!bannedAsFirst.has(base)) continue;
-    const replace = REPLACEMENTS[base] ?? "ffs / ast-grep / the read tool";
     const rewritten = rewriteBanned(seg);
     if (rewritten && !isStrict()) {
       // INVISIBLE rewrite: swap the command and run it. The agent sees the
-      // sanctioned equivalent's output with no scolding banner.
+      // sanctioned equivalent's output with no notice.
       segments[si] = rewritten;
       continue;
     }
     if (isStrict()) {
-      process.stderr.write(
-        `\n[run-fast HARD-BLOCKED] '${base}' is banned — I refuse to run it (KAIROS_STRICT).\n` +
-          `\n  WHY it's banned:\n` +
-          `  ${WHY[base] ?? "it destroys, truncates, or re-walks output — the lane of slower/wrong tools."}\n` +
-          `\n  DO THIS INSTEAD (run it now):\n` +
-          `  ${replace}\n`,
+      scold(
+        `HARD-BLOCKED '${base}' (KAIROS_STRICT). WHY: ${why(base)}. DO INSTEAD: ${replacementFor(base)}`,
       );
       process.exit(126);
     }
-    // No 1:1 rewrite available and not strict: still run it, with notice.
-    process.stderr.write(
-      `[run-fast autonomous] '${base}' is banned (${WHY[base] ?? "slow/wrong lane"}) — running with notice; prefer: ${replace}\n`,
+    // No 1:1 rewrite available and not strict: run it as-is, silently.
+    notice(
+      `autonomous: '${base}' runs as-is (no safe rewrite). prefer: ${replacementFor(base)}`,
     );
   }
 
@@ -632,7 +231,7 @@ export async function runSession(
 
   const t0 = performance.now();
   const id = genId(p.sessionName);
-  if (!opts.quiet) process.stderr.write(`[run-fast] session=${id}\n`);
+  sessionLine(`session=${id}`);
 
   // Strict explicit deadline (`--deadline=N`): capture ONCE and thread through
   // BOTH the kill-timer and the breach verdict so they always agree. When set it
@@ -648,7 +247,7 @@ export async function runSession(
   // (synchronous flush per chunk), so output is never buffered-and-lost and the
   // transcript is always the full record even if the process is killed mid-stream.
   const mkSink = () => {
-    mkdirSync(SESSION_DIR, { recursive: true });
+    mkdirSync(sessionDir(), { recursive: true });
     const w = outPath(id);
     let pending = "";
     const flush = () => {
@@ -676,9 +275,10 @@ export async function runSession(
   const sink = mkSink();
 
   // Run one pipeline group (segments joined by |), streaming live as it produces.
-  // `cmd | head`/`| tail`/`| wc` are ordinary pipelines — display truncation is
-  // the agent's call, never rewritten or scolded. Full output is live-persisted
-  // to the session file regardless, so nothing is ever lost.
+  // `cmd | head`/`| tail`/`| wc` are MITM-rewritten: run the upstream FULLY
+  // (nothing lost), slice the display window, and append a minimal informational
+  // note like `[Head ignored, lines contained: N]`. No scolding, no cancel — just
+  // a quiet, factual pointer that the full output lives in the session file.
   const runGroup = async (
     segments: string[][],
   ): Promise<{ stdout: string; exit: number }> => {
@@ -690,12 +290,122 @@ export async function runSession(
       explicitS,
     );
 
+    // MITM rewrite: detect a trailing truncator (head/tail/wc) with an upstream.
+    const last = segments.at(-1)!;
+    const upstream = segments.slice(0, -1);
+    const trunc: "head" | "tail" | "wc" | null =
+      upstream.length && last.length
+        ? (["head", "tail", "wc"] as const).find(
+            (t) => last[0].split("/").pop() === t,
+          ) ?? null
+        : null;
+
+    // MITM: run the upstream FULLY, slice the display window, append a note.
+    // Nothing is lost — the full output is persisted to the session file.
+    if (trunc) {
+      const upCmd = upstream.map((s) => shellQuoteCmd(s)).join(" | ");
+      const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", upCmd], {
+        stdout: "pipe",
+        stderr: "inherit",
+        stdin: "inherit",
+        cwd: p.cwd,
+        env: p.env,
+      });
+      const timer = setTimeout(() => {
+        try {
+          proc.kill(9);
+        } catch {}
+      }, dl * 1000);
+      const buf: string[] = [];
+      const reader = proc.stdout!.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf.push(new TextDecoder().decode(value));
+      }
+      clearTimeout(timer);
+      const raw = buf.join("");
+      await proc.exited;
+      sink.write(raw); // persist full upstream to the session file
+      const lines = raw.split("\n");
+      const n = last.length > 1 ? Number(String(last[1]).replace("-", "")) || 10 : 10;
+      let win: string[];
+      let note: string;
+      if (trunc === "head") {
+        win = lines.slice(0, n);
+        note = `[Head ignored, lines contained: ${lines.length}]`;
+      } else if (trunc === "tail") {
+        win = lines.slice(-n);
+        note = `[Tail ignored, lines contained: ${lines.length}]`;
+      } else {
+        win = [`${lines.length - 1}`];
+        note = `[Wc ignored, lines contained: ${lines.length - 1}]`;
+      }
+      return {
+        stdout: win.join("\n") + (note ? `\n${note}` : ""),
+        exit: proc.exitCode ?? 1,
+      };
+    }
+
+    // MITM: single-segment file truncation — `head file`/`tail file`/`wc file`.
+    // Run `cat file` fully, slice the display window, append the note.
+    const singleBase = segments[0][0]?.split("/").pop() ?? "";
+    if (
+      segments.length === 1 &&
+      (singleBase === "head" || singleBase === "tail" || singleBase === "wc")
+    ) {
+      const fileArg = segments[0].slice(1).find((a) => !a.startsWith("-") && a !== "-");
+      if (fileArg) {
+        const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", `cat ${shellQuoteCmd([fileArg])}`], {
+          stdout: "pipe",
+          stderr: "inherit",
+          stdin: "inherit",
+          cwd: p.cwd,
+          env: p.env,
+        });
+        const timer = setTimeout(() => {
+          try {
+            proc.kill(9);
+          } catch {}
+        }, dl * 1000);
+        const buf: string[] = [];
+        const reader = proc.stdout!.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf.push(new TextDecoder().decode(value));
+        }
+        clearTimeout(timer);
+        const raw = buf.join("");
+        await proc.exited;
+        sink.write(raw);
+        const lines = raw.split("\n");
+        const n = segments[0].length > 1 ? Number(String(segments[0][1]).replace("-", "")) || 10 : 10;
+        let win: string[];
+        let note: string;
+        if (singleBase === "head") {
+          win = lines.slice(0, n);
+          note = `[Head ignored, lines contained: ${lines.length}]`;
+        } else if (singleBase === "tail") {
+          win = lines.slice(-n);
+          note = `[Tail ignored, lines contained: ${lines.length}]`;
+        } else {
+          win = [`${lines.length - 1}`];
+          note = `[Wc ignored, lines contained: ${lines.length - 1}]`;
+        }
+        return {
+          stdout: win.join("\n") + (note ? `\n${note}` : ""),
+          exit: proc.exitCode ?? 1,
+        };
+      }
+    }
+
     // Run the pipeline normally, stream as it produces (live-persisted).
     if (
       segments.length === 1 &&
       !segments[0]
         .map((s) => s.split("/").pop())
-        .filter(Boolean)
+        .filter((s): s is string => Boolean(s))
         .some((b) => bannedAsFirst.has(b)) &&
       segments[0][0] !== "/bin/bash"
     ) {
@@ -704,7 +414,7 @@ export async function runSession(
         stderr: "inherit",
         stdin: "inherit",
         cwd: p.cwd,
-        env: p.env as any,
+        env: p.env,
       });
       const timer = setTimeout(() => {
         try {
@@ -714,7 +424,7 @@ export async function runSession(
       await Promise.all([
         proc.exited,
         streamReader(proc.stdout, sink),
-        streamReader(proc.stderr, { out: "", write: () => {} }),
+        streamReader(proc.stderr, { write: () => {} }),
       ]);
       clearTimeout(timer);
       return { stdout: "", exit: proc.exitCode ?? 1 };
@@ -734,7 +444,7 @@ export async function runSession(
         stderr: "inherit",
         stdin: "inherit",
         cwd: p.cwd,
-        env: p.env as any,
+        env: p.env,
       },
     );
     const timer = setTimeout(() => {
@@ -745,7 +455,7 @@ export async function runSession(
     await Promise.all([
       proc.exited,
       streamReader(proc.stdout, sink),
-      streamReader(proc.stderr, { out: "", write: () => {} }),
+      streamReader(proc.stderr, { write: () => {} }),
     ]);
     clearTimeout(timer);
     return { stdout: "", exit: proc.exitCode ?? 1 };
@@ -788,7 +498,7 @@ export async function runSession(
       : effectiveDeadline(p.cwd, HARD_DEADLINE);
   if (elapsedMs > verdictDeadline * 1000) {
     verdict = "breach";
-    urgentBreach(args, elapsedMs / 1000, p.cwd);
+    urgentBreach(args, elapsedMs / 1000, verdictDeadline);
   } else if (exit !== 0) {
     verdict = "fail";
   } else {
@@ -805,10 +515,7 @@ export async function runSession(
     state: "done",
   });
 
-  if (!opts.quiet)
-    process.stderr.write(
-      `[two-sec ${verdict} ${(elapsedMs / 1000 || 0).toFixed(2)}s exit=${exit}] id=${id}\n`,
-    );
+  sessionLine(`${verdict} ${(elapsedMs / 1000 || 0).toFixed(2)}s exit=${exit} id=${id}`);
   if (verdict !== "ok")
     logVerdict(p.cwd, {
       kind: verdict,
@@ -822,7 +529,7 @@ export async function runSession(
 export async function attachSession(id: string) {
   let meta = readMeta(id);
   if (!meta) {
-    process.stderr.write(`[run-fast] session ${id} not found\n`);
+    scold(`session ${id} not found`);
     process.exit(1);
   }
   if (meta.state === "running") {
@@ -837,15 +544,13 @@ export async function attachSession(id: string) {
         meta = readMeta(id);
         if (meta?.state === "done") {
           clearInterval(poll);
-          process.stderr.write(
-            `[two-sec done exit=${meta.exitCode}] id=${id}\n`,
-          );
+          sessionLine(`done exit=${meta.exitCode} id=${id}`);
         }
       } catch {}
     }, 50);
   } else {
     process.stdout.write(readFileSync(outPath(id), "utf-8"));
-    process.stderr.write(`[two-sec done exit=${meta.exitCode}] id=${id}\n`);
+    sessionLine(`done exit=${meta.exitCode} id=${id}`);
   }
 }
 
@@ -899,7 +604,7 @@ export async function purgeSessions(pattern?: string) {
     deleteSession(s.id);
     r++;
   }
-  process.stderr.write(`[run-fast] purged ${r} session(s)\n`);
+  sessionLine(`purged ${r} session(s)`);
 }
 
 export async function cancelSession(id: string) {
@@ -916,7 +621,7 @@ export async function cancelSession(id: string) {
         } catch {}
     }
   } catch {}
-  process.stderr.write(`[run-fast] cancelled ${id}\n`);
+  sessionLine(`cancelled ${id}`);
 }
 
 /**
@@ -936,17 +641,15 @@ export async function runDetached(
 ): Promise<{ id: string }> {
   const p = parseArgs(args);
   const id = genId(p.sessionName);
-  mkdirSync(SESSION_DIR, { recursive: true });
+  mkdirSync(sessionDir(), { recursive: true });
 
   // Lossless: preserve every arg boundary AND the operators between segments —
   // the old `join(" ")` turned `a && b` into `a b` and stripped inner quotes.
   const cmd = p.segments.length > 0 ? segmentsToCmd(p.segments, p.ops) : "true";
 
   // Print the session id FIRST so an LLM/tool sees it before anything else.
-  process.stderr.write(`[run-fast] session=${id} (detached)\n`);
-  process.stderr.write(
-    `[run-fast] follow: kairos attach ${id} | kairos logs ${id} | kairos cancel ${id}\n`,
-  );
+  sessionLine(`session=${id} (detached)`);
+  sessionLine(`follow: kairos attach ${id} | kairos logs ${id} | kairos cancel ${id}`);
 
   writeMeta(id, {
     id,
@@ -963,28 +666,24 @@ export async function runDetached(
   // `null` cwd => inherit; env inherited so credentials/SSH agent reach the child.
   const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", cmd], {
     cwd: p.cwd || process.cwd(),
-    env: p.env as any,
+    env: p.env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
   const fd = openSync(out, "a");
   const tee = (buf: Uint8Array) => {
     try {
-      writeSync(fd, buf, null, "utf8");
-      if (!opts.quiet)
-        process.stderr.write(
-          `[run-fast ${id}] ` + new TextDecoder().decode(buf),
-        );
+      const s = new TextDecoder().decode(buf);
+      writeSync(fd, s, null, "utf8");
+      if (!opts.quiet) sessionLine(`[${id}] ` + s);
     } catch {}
   };
-  // Canonical Bun pattern (borrowed from bun docs): Subprocess.stdout is a
-  // ReadableStream, which is natively async-iterable. No cast, no .forEach.
   const drain = async (rs: ReadableStream<Uint8Array> | null) => {
     if (!rs) return;
     for await (const chunk of rs) tee(chunk);
   };
-  drain(proc.stdout as any).catch(() => {});
-  drain(proc.stderr as any).catch(() => {});
+  drain(proc.stdout).catch(() => {});
+  drain(proc.stderr).catch(() => {});
   proc.unref();
 
   proc.exited.then((code) => {
@@ -999,7 +698,7 @@ export async function runDetached(
       exitCode: code ?? 1,
       state: "done",
     });
-    process.stderr.write(`[run-fast] done exit=${code} id=${id}\n`);
+    sessionLine(`done exit=${code} id=${id}`);
   });
 
   return { id };

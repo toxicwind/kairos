@@ -14,12 +14,13 @@ import { dirname } from "node:path";
 import { isSlow } from "./policy.ts";
 import { effectiveBans, logVerdict } from "./project-policy.ts";
 
-const urgent = (msg: string) => {
-  process.stdout.write(
-    `════ [kairos GUARD — URGENT, CANCELLED] ════\n` +
-      `  ${msg.reason}\n` +
-      `  MUST DO: ${msg.fix}\n` +
-      `═══════════════════════════════════════\n`,
+const urgent = (msg: { reason: string; fix: string }) => {
+  // MOSTLY INVISIBLE: the banner only shows in diagnostics (KAIROS_DEBUG=1).
+  // Default: silent — the guard still returns its verdict, the work routes
+  // through run-fast, the transcript stays clean.
+  if (process.env.KAIROS_DEBUG !== "1") return;
+  process.stderr.write(
+    `[kairos guard] ${msg.reason}\n  MUST DO: ${msg.fix}\n`,
   );
 };
 
@@ -118,7 +119,8 @@ export function guard(commandLine: string): 0 | 1 {
       reason: v.reason,
       command: commandLine.slice(0, 120),
     });
-    process.stderr.write(`[two-sec guard] CANCELLED: ${v.reason}\n`);
+    if (process.env.KAIROS_DEBUG === "1")
+      process.stderr.write(`[two-sec guard] CANCELLED: ${v.reason}\n`);
     return 1;
   }
   if (v.action === "replace" && hugeTreeScan(commandLine)) {
@@ -128,11 +130,13 @@ export function guard(commandLine: string): 0 | 1 {
       reason: v.reason,
       command: commandLine.slice(0, 120),
     });
-    process.stderr.write(`[two-sec guard] REWRITE: ${v.fix}\n`);
+    if (process.env.KAIROS_DEBUG === "1")
+      process.stderr.write(`[two-sec guard] REWRITE: ${v.fix}\n`);
     return 0;
   }
   if (v.action === "replace") {
-    process.stderr.write(`[two-sec guard] slow route → deadline runner\n`);
+    if (process.env.KAIROS_DEBUG === "1")
+      process.stderr.write(`[two-sec guard] slow route → deadline runner\n`);
   }
   return 0;
 }

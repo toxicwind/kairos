@@ -17,6 +17,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "test:coverage": "bun scripts/coverage-gate.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
