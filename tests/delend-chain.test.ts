@@ -9,11 +9,9 @@ const STALE_CORRAL = "corral/delendai";
 // Canonical post-reorg home: ergasterion is a TOP-LEVEL pen (pens/ergasterion),
 // not a product under olympus. The code-race plugin lives there.
 const PLUGIN = join(HOME, "pens/ergasterion/hephaistos/plugins/code-race");
-// The delend-code-race launcher lives in the estate pen's estate-ops product.
-const LAUNCHER = join(
-  HOME,
-  "pens/estate/products/estate-ops/delend-code-race",
-);
+// The delend-code-race launcher lives in the ranch ops product (post-reorg
+// canonical home), symlinked into ~/.local/bin.
+const LAUNCHER = join(HOME, "pens/ranch/products/ops/delend-code-race");
 const MANIFEST = join(HOME, "pens/barn/estate-ops/bin/manifest.yaml");
 // The estate-ops dir also resolves via the ~/.local/bin symlink (bin-verify).
 const BIN_LAUNCHER = join(HOME, ".local/bin/delend-code-race");
@@ -73,11 +71,11 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     const m = read(MANIFEST);
     // Manifest emits its own name form (PATH-style) — assert the names exist and
     // the targets point at estate-ops launcher + plugin entries, never the corral.
-    expect(m).toContain('name: "~/.local/bin/delend-code-race"');
+    expect(m).toContain('name: "delend-code-race"');
     expect(m).toContain(`target: "${LAUNCHER}"`);
-    expect(m).toContain('name: "~/.local/bin/delend-code-race-line"');
+    expect(m).toContain('name: "delend-code-race-line"');
     expect(m).toContain(`target: "${join(PLUGIN, "bin/race-line.ts")}"`);
-    expect(m).toContain('name: "~/.local/bin/delend-code-race-rs"');
+    expect(m).toContain('name: "delend-code-race-rs"');
     expect(m).toContain(
       `target: "${join(PLUGIN, "crates/code-race/target/release/delend-code-race")}"`,
     );
