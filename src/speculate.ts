@@ -18,13 +18,23 @@
  * handoff).
  */
 import { spawn } from "bun";
-import { mkdirSync, openSync, writeSync, closeSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, writeSync, closeSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { genId, outPath, sessionDir, writeMeta } from "./session.ts";
 import { sessionLine } from "./notice.ts";
 
 /** Default speculation window (seconds) hephaistos has after a breach. */
 export const DEFAULT_DEADLINE_S = 90;
+
+/**
+ * Minimum remaining window (seconds) for speculation to be VIABLE. The race
+ * needs boot + lane spin-up + cheap verify before it can possibly beat the
+ * original; if the original's remaining budget is smaller, invoking hephaistos
+ * is guaranteed waste (the original always wins — the race never even finishes
+ * booting). Edge case class: `--max-time 2 --deadline 10` on a 3s command —
+ * the original finishes at 3s while hephaistos is still processing the prompt.
+ */
+export const MIN_VIABLE_RACE_S = Number(process.env.KAIROS_MIN_RACE_S || 5);
 
 export interface SpeculationRecord {
   id: string;
@@ -66,6 +76,103 @@ export interface SpeculativeResult {
   id: string;
   exitCode: number | null;
   stdout: string;
+}
+
+/** Resolve the race entrypoint: KAIROS_RACE_BIN (tests) else the hephaistos code-race plugin. */
+export function raceBin(): string {
+  return (
+    process.env.KAIROS_RACE_BIN ||
+    process.env.DELEND_CODE_RACE ||
+    "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts"
+  );
+}
+
+/**
+ * Tier 2 — invoke the hephaistos race entrypoint with {id, shape, deadlineAt}
+ * JSON on stdin. Fire-and-forget: the agent call already returned; the race
+ * runs in its own process and its verdict lands via the ledger/attach channel.
+ */
+export async function invokeRace(
+  id: string,
+  shape: string,
+  deadlineAt: number,
+): Promise<void> {
+  const bin = raceBin();
+  if (!bin || !existsSync(bin)) return;
+  const payload = JSON.stringify({
+    id,
+    shape,
+    deadlineAt,
+    // Guidance for the smith: the winning candidate is often the REMOVAL of a
+    // trivially-removable command (sleep, pointless waits) — "find a faster
+    // sleep" is the wrong answer; "no sleep at all" is the right one.
+    hint: "the fastest correct command may be the command removed",
+  });
+  // Detached spawn: the race OUTLIVES the agent call (the CLI exits at the
+  // Tier-1 handoff; a non-detached child dies with it — observed as empty/partial
+  // race payloads in testing). Bun's detached spawn exposes no writable stdin
+  // stream, so the payload is staged to a temp file and redirected via the shell.
+  const payloadFile = join(sessionDir(), `${id}.race-payload.json`);
+  writeFileAtomic(payloadFile, payload);
+  const proc = spawn(
+    ["/bin/bash", "-c", `bun "${bin}" < "${payloadFile}"`],
+    {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      detached: true,
+    },
+  );
+  proc.unref();
+  await proc.exited;
+}
+
+export interface CandidateVerdict {
+  cmd: string;
+  sampleSpeedup: number;
+}
+
+/**
+ * Tier 2 verify gate (megakernel-style cheap verify): a candidate may only
+ * enter the race if it produces the SAME output shape on a sample AND is
+ * strictly faster than the baseline. Anything else is discarded (null) —
+ * never raced.
+ */
+export async function verifyCandidate(
+  candidateCmd: string,
+  baseline: () => Promise<{ stdout: string; exitCode: number }>,
+  expectedShape: string,
+): Promise<CandidateVerdict | null> {
+  // Sample-run the candidate.
+  const t0 = performance.now();
+  const proc = spawn(["/bin/bash", "-o", "pipefail", "-c", candidateCmd], {
+    stdout: "pipe",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  const buf: string[] = [];
+  const reader = proc.stdout!.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf.push(new TextDecoder().decode(value));
+  }
+  await proc.exited;
+  const candidateMs = performance.now() - t0;
+  const candidateOut = buf.join("");
+
+  // Output-shape gate: same output, else discard.
+  if (candidateOut !== expectedShape) return null;
+  if ((proc.exitCode ?? 1) !== 0) return null;
+
+  // Speed gate: strictly faster than the baseline on the sample, else discard.
+  const b0 = performance.now();
+  const base = await baseline();
+  const baselineMs = performance.now() - b0;
+  if (base.stdout !== expectedShape) return null;
+  if (candidateMs >= baselineMs) return null;
+
+  return { cmd: candidateCmd, sampleSpeedup: baselineMs / candidateMs };
 }
 
 /**
@@ -161,6 +268,21 @@ export async function runSpeculative(
     // banner: emitted on stdout unconditionally, machine-parseable.
     process.stdout.write(`session=${id} (speculative, detached at ${opts.maxTimeS}s)\n`);
     sessionLine(`follow: kairos attach ${id} | kairos logs ${id} | kairos cancel ${id}`);
+    // Tier 3 viability gate: if the original's remaining budget cannot beat the
+    // race's boot+verify cost, invoking hephaistos is guaranteed waste (the
+    // original always finishes before the race even boots). Skip the race —
+    // the original is the winner by construction.
+    const remainingS = (breachMs + opts.deadlineS * 1000 - Date.now()) / 1000;
+    if (remainingS >= MIN_VIABLE_RACE_S) {
+      // Tier 2: hand the speculation to hephaistos — fire-and-forget from the
+      // agent's perspective (the agent call already returned the id). The race
+      // entrypoint gets {id, shape, deadlineAt} JSON on stdin.
+      invokeRace(id, cmd, breachMs + opts.deadlineS * 1000).catch(() => {});
+    } else {
+      sessionLine(
+        `viability: remaining ${remainingS.toFixed(1)}s < ${MIN_VIABLE_RACE_S}s boot cost — no race, original wins`,
+      );
+    }
     return { verdict: "breach", id, exitCode: null, stdout: "" };
   }
 

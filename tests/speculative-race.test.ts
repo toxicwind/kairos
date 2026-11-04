@@ -172,3 +172,121 @@ describe("Cycle 2 — Tier 1: breach detaches instead of killing", () => {
     if (id) expect(spec(id)).toBeNull();
   });
 });
+describe("Cycle 3 — Tier 2: hephaistos race invocation + cheap verify gate", () => {
+  test(
+    "at breach, kairos invokes the race entrypoint with {id, shape} JSON on stdin",
+    async () => {
+      // Fake race entrypoint: a REAL script (no mock framework) that records
+      // the stdin payload it received to a file, then exits 0.
+      const raceBin = join(SESSION_DIR, "fake-race.ts");
+      const raceSeen = join(SESSION_DIR, "race-seen.json");
+      await Bun.write(
+        raceBin,
+        `import { writeFileSync } from "node:fs";
+const raw = await new Response(Bun.stdin.stream()).text();
+writeFileSync(${JSON.stringify(raceSeen)}, raw);
+console.log("race done");`,
+      );
+      const { out, err, exit } = await runCli(
+        ["run", "--max-time", "1", "--deadline", "90", "--", "sleep", "3"],
+        { KAIROS_RACE_BIN: raceBin },
+      );
+      expect(exit).toBe(0);
+      // The race entrypoint is fire-and-forget — poll briefly for its record.
+      let seenRaw = "";
+      for (let i = 0; i < 30 && !seenRaw; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        try {
+          seenRaw = readFileSync(raceSeen, "utf-8");
+        } catch {}
+      }
+      const seen = JSON.parse(seenRaw);
+      const id = extractId(out + err);
+      expect(id).not.toBeNull();
+      expect(seen.id).toBe(id);
+      expect(typeof seen.shape).toBe("string");
+      expect(seen.shape).toContain("sleep");
+    },
+    10_000,
+  );
+
+  test("a candidate that fails cheap verify is never raced (verify gate)", async () => {
+    // verifyCandidate contract: same output shape AND strictly faster on the
+    // sample, else the candidate is discarded (returns null).
+    const { verifyCandidate } = await import("../src/speculate.ts");
+    // Candidate: same output ("hi"), but SLOWER than the baseline — must be discarded.
+    const slower = {
+      cmd: 'sleep 0.2 && echo hi',
+      run: async () => ({ stdout: "hi\n", exitCode: 0 }),
+    };
+    const baseline = async () => ({ stdout: "hi\n", exitCode: 0 });
+    const verdict = await verifyCandidate(slower.cmd, baseline, "hi\n");
+    expect(verdict).toBeNull();
+  });
+
+  test("a candidate that passes cheap verify (same shape, faster) is accepted", async () => {
+    const { verifyCandidate } = await import("../src/speculate.ts");
+    // Baseline = the ORIGINAL command actually executed (slow: sleep 0.3).
+    const baseline = async () => {
+      const p = Bun.spawn(["/bin/bash", "-c", "sleep 0.3 && echo hi"], {
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      const stdout = await new Response(p.stdout).text();
+      await p.exited;
+      return { stdout, exitCode: p.exitCode ?? 1 };
+    };
+    // Candidate = the REMOVAL of the sleep (the architect's point: the fastest
+    // correct command is the command with the sleep deleted).
+    const verdict = await verifyCandidate("echo hi", baseline, "hi\n");
+    expect(verdict).not.toBeNull();
+    expect(verdict!.cmd).toBe("echo hi");
+    expect(verdict!.sampleSpeedup).toBeGreaterThan(1);
+  });
+});
+
+describe("Cycle 3b — Tier 3 edge cases: speculation viability", () => {
+  test("race window shorter than race boot cost → hephaistos is NEVER invoked (viability gate)", async () => {
+    // --max-time 1 --deadline 2: the original (sleep 3) breaches at 1s but its
+    // remaining budget (2s) cannot beat the race boot+verify cost. Invoking
+    // hephaistos is guaranteed waste — the viability gate must skip it.
+    const raceBin = join(SESSION_DIR, "fake-race-viability.ts");
+    const raceSeen = join(SESSION_DIR, "race-viability-seen.json");
+    await Bun.write(
+      raceBin,
+      `import { writeFileSync } from "node:fs";
+const raw = await new Response(Bun.stdin.stream()).text();
+writeFileSync(${JSON.stringify(raceSeen)}, raw);`,
+    );
+    const { exit } = await runCli(
+      ["run", "--max-time", "1", "--deadline", "2", "--", "sleep", "3"],
+      { KAIROS_RACE_BIN: raceBin },
+    );
+    expect(exit).toBe(0);
+    // Give any (wrongly) fired race process time to write.
+    await new Promise((r) => setTimeout(r, 800));
+    expect(existsSync(raceSeen)).toBe(false);
+    // The speculation record still exists (the original is still tracked).
+  });
+
+  test("viability gate: remaining window >= boot cost → race IS invoked", async () => {
+    const raceBin = join(SESSION_DIR, "fake-race-viability2.ts");
+    const raceSeen = join(SESSION_DIR, "race-viability2-seen.json");
+    await Bun.write(
+      raceBin,
+      `import { writeFileSync } from "node:fs";
+const raw = await new Response(Bun.stdin.stream()).text();
+writeFileSync(${JSON.stringify(raceSeen)}, raw);`,
+    );
+    await runCli(
+      ["run", "--max-time", "1", "--deadline", "90", "--", "sleep", "3"],
+      { KAIROS_RACE_BIN: raceBin },
+    );
+    let seen = "";
+    for (let i = 0; i < 30 && !seen; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      try { seen = readFileSync(raceSeen, "utf-8"); } catch {}
+    }
+    expect(seen).not.toBe("");
+  });
+});
