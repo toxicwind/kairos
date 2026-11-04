@@ -66,10 +66,19 @@ export function isSlow(bin: string, sub: string): boolean {
 }
 
 /**
+ * Hard cap on any BLOCKING deadline (architect directive 2026-11-04: "deadline
+ * max 10s"). A blocking wait longer than 10s is a defect — long work belongs
+ * in a detached session (run-fast detach), whose kill window is a separate
+ * table (DETACH_KILL_WINDOWS) that never blocks the agent.
+ */
+export const MAX_BLOCKING_DEADLINE = 10;
+
+/**
  * Per-command deadline overrides (seconds). Slow-but-bounded tools that walk a
  * large tree legitimately need more than the 2s default; declare them here so
  * BOTH the runner (which enforces) and the guard (which routes/advises) read
  * one table. This is the first-class way to widen a window — never an abort.
+ * Clamped to MAX_BLOCKING_DEADLINE at read time (deadlineFor).
  */
 export const DEADLINE_BUMPS: Record<string, number> = {
   glob: 10,
@@ -77,14 +86,21 @@ export const DEADLINE_BUMPS: Record<string, number> = {
   ffs_glob: 10,
   ffs_find: 10,
   ffs_index: 10,
-  typecheck: 180,
-  tsgo: 180,
-  turbo: 180,
-  tsc: 180,
-  status: 20, // git status (incl --ignored) walks huge trees on the estate
-  gh: 120, // gh repo/pr/release/api/issue/search — one-shot GitHub ops (network)
-  // git network ops — auto-detached by the runner (shouldDetach), so this is the
-  // safety-net kill window for a wedged detached push/merge, not a blocking wait.
+  typecheck: 10,
+  tsgo: 10,
+  turbo: 10,
+  tsc: 10,
+  status: 10, // git status (incl --ignored); walks huge trees but 10s is the ceiling
+  gh: 10, // gh repo/pr/release/api/issue/search — one-shot GitHub ops (network)
+};
+
+/**
+ * Safety-net kill windows for AUTO-DETACHED commands (shouldDetach routes:
+ * git network ops, sudo). These never block the agent — the runner detaches
+ * immediately and this window only reaps a wedged background process.
+ * NOT subject to MAX_BLOCKING_DEADLINE (nothing waits on them).
+ */
+export const DETACH_KILL_WINDOWS: Record<string, number> = {
   "git:push": 600,
   "git:pull": 600,
   "git:fetch": 600,
@@ -92,9 +108,6 @@ export const DEADLINE_BUMPS: Record<string, number> = {
   "git:merge": 600,
   "git:rebase": 600,
   "git:submodule": 600,
-  // sudo = privileged long sys-ops (btrfs archives/walks, package ops). Always
-  // auto-detached (shouldDetach); this is the safety-net kill window so a
-  // wedged detached sudo is reaped, not a blocking wait.
   sudo: 600,
 };
 
@@ -134,16 +147,18 @@ export function deadlineFor(
   if (explicitS !== undefined) return explicitS;
   const bin = String(args[0] ?? "");
   const sub = effectiveSub(args);
+  const clamp = (s: number): number => Math.min(s, MAX_BLOCKING_DEADLINE);
   if (bin === "ffs" || bin.endsWith("/ffs")) {
     // catch the tree-walking reader subcommands and auto-widen their window
-    if (sub === "glob" || sub === "find" || sub === "index") return 10;
-    return DEADLINE_BUMPS[`ffs_${sub}`] ?? baseS;
+    if (sub === "glob" || sub === "find" || sub === "index") return MAX_BLOCKING_DEADLINE;
+    return clamp(DEADLINE_BUMPS[`ffs_${sub}`] ?? baseS);
   }
   // `bun typecheck` / `npm typecheck` / `tsgo --noEmit` / `git status`: widen by subcommand too.
-  if (bin === "git" && sub === "status") return DEADLINE_BUMPS.status;
-  // Inherently network / long-inflight commands: give a generous real window so
-  // they are not killed at the 2s base (they are auto-detached in the runner).
-  const network = DEADLINE_BUMPS[`${bin}:${sub}`];
+  if (bin === "git" && sub === "status") return clamp(DEADLINE_BUMPS.status);
+  // Inherently network / long-inflight commands (git push/pull/…, sudo): these
+  // are AUTO-DETACHED by the runner, so their value is the detached kill window
+  // (DETACH_KILL_WINDOWS), not a blocking wait — exempt from the 10s cap.
+  const network = DETACH_KILL_WINDOWS[`${bin}:${sub}`];
   if (network !== undefined) return network;
   if (
     sub === "typecheck" ||
@@ -151,9 +166,9 @@ export function deadlineFor(
     sub === "check" ||
     sub === "build"
   ) {
-    return DEADLINE_BUMPS[sub] ?? DEADLINE_BUMPS[bin] ?? baseS;
+    return clamp(DEADLINE_BUMPS[sub] ?? DEADLINE_BUMPS[bin] ?? baseS);
   }
-  return DEADLINE_BUMPS[bin] ?? baseS;
+  return clamp(DEADLINE_BUMPS[bin] ?? baseS);
 }
 
 /**

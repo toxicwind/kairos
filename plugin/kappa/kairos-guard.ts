@@ -6,7 +6,7 @@
 //   allow   → untouched
 //
 // Wire it (global ~/.config/kappa/kappa.jsonc or project kappa.json):
-//   "plugin": ["file:///home/toxic/pens/olympus/products/kairos/plugin/kappa/kairos-guard.ts"]
+//   "plugin": ["file:///home/toxic/pens/ergasterion/products/kairos/plugin/kappa/kairos-guard.ts"]
 //
 // Backwards compatible: kappa-code, kilo-code and opencode all implement the
 // same Plugin Hooks contract ("tool.execute.before" with mutable output.args).

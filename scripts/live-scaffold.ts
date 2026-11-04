@@ -12,7 +12,7 @@
  * live assertions and run it with `--coverage --coverage-reporter=lcov`.
  *
  * Usage (from a product root):
- *   bun /home/toxic/pens/olympus/products/kairos/scripts/live-scaffold.ts
+ *   bun /home/toxic/pens/ergasterion/products/kairos/scripts/live-scaffold.ts
  *   bun .../live-scaffold.ts --root /path/to/product     # scan a specific root
  *   bun .../live-scaffold.ts --dry-run                    # report only, no writes
  *   bun .../live-scaffold.ts --force                      # overwrite existing twins

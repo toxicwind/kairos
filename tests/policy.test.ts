@@ -66,14 +66,14 @@ describe("policy", () => {
   test("git network ops get a generous deadline (not the 2s base)", () => {
     expect(deadlineFor(["git", "push"], 2.0)).toBe(600);
     expect(deadlineFor(["git", "pull"], 2.0)).toBe(600);
-    expect(deadlineFor(["git", "status"], 2.0)).toBe(20);
+    expect(deadlineFor(["git", "status"], 2.0)).toBe(10);
     expect(deadlineFor(["bun", "test"], 2.0)).toBe(2.0);
   });
   test("detachDeadline ceiling", () => {
     expect(detachDeadline(["git", "push"])).toBe(600);
   });
   test("explicit --deadline=N is strict, verbatim (overrides bumps + base)", () => {
-    // A user-supplied strict deadline beats DEADLINE_BUMPS (tsgo=180) and the base.
+    // A user-supplied strict deadline beats DEADLINE_BUMPS (tsgo=10, MAX_BLOCKING_DEADLINE) and the base.
     expect(deadlineFor(["tsgo", "--noEmit"], 4.0, 1.0)).toBe(1.0);
     expect(deadlineFor(["git", "push"], 4.0, 2.5)).toBe(2.5);
     expect(deadlineFor(["bun", "test"], 4.0, 0.5)).toBe(0.5);
@@ -87,18 +87,18 @@ describe("policy", () => {
     expect(shouldDetach(undefined as unknown as string[])).toBe(false);
   });
   test("without explicitS, deadlineFor still honors bumps + base", () => {
-    expect(deadlineFor(["tsgo", "--noEmit"], 4.0)).toBe(180);
-    expect(deadlineFor(["git", "status"], 4.0)).toBe(20);
+    expect(deadlineFor(["tsgo", "--noEmit"], 4.0)).toBe(10);
+    expect(deadlineFor(["git", "status"], 4.0)).toBe(10);
     expect(deadlineFor(["echo", "hi"], 4.0)).toBe(4.0);
   });
   test("deadlineFor skips git -C flag+value to find the subcommand", () => {
-    // `git -C /path status` → effective sub is status (bumped to 20s), not the path.
-    expect(deadlineFor(["git", "-C", "/tmp", "status"], 4.0)).toBe(20);
+    // `git -C /path status` → effective sub is status (bumped to 10s), not the path.
+    expect(deadlineFor(["git", "-C", "/tmp", "status"], 4.0)).toBe(10);
     expect(deadlineFor(["git", "--git-dir", "/x", "push"], 4.0)).toBe(600);
     expect(deadlineFor(["git", "--work-tree", "/x", "pull"], 4.0)).toBe(600);
   });
   test("deadlineFor honors bin-level bumps (gh)", () => {
-    expect(deadlineFor(["gh", "repo", "view"], 4.0)).toBe(120);
+    expect(deadlineFor(["gh", "repo", "view"], 4.0)).toBe(10);
   });
 });
 
@@ -114,7 +114,7 @@ describe("kairos shim canonical-path emission", () => {
     // init.ts embeds the runtime-expanded absolute path (not a runtime $HOME
     // expansion) — the shim literal carries the absolute pens path.
     expect(shim).toContain(
-      "/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts",
+      "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts",
     );
     expect(shim).not.toContain("$HOME/pens/barn/");
   });

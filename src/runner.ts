@@ -44,7 +44,7 @@ import { scold, urgentBreach, notice, sessionLine } from "./notice.ts";
 const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
 const DELEND_CODE_RACE =
   process.env.DELEND_CODE_RACE ||
-  "/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts";
+  "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts";
 
 export interface RunResult {
   verdict: "ok" | "breach" | "fail" | "spawn-fail";

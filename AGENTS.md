@@ -34,7 +34,7 @@ command policy (`policy.ts`/`guard.ts`), and the generated bash shim
 - **Deadline bumps are intentional.** `typecheck`/`tsgo`/`turbo` get 180s;
   `git status` gets 20s. Every other command stays at the 2.0s base.
 - **Run-fast is required** for every command (estate doctrine). The estate
-  `bin/run-fast` shim routes through `ranch/kairos/src/cli.ts`. Set `KAIROS_DIR`
+  `bin/run-fast` shim routes through `products/kairos/src/cli.ts` (this repo, ergasterion). Set `KAIROS_DIR`
   to point at a fork/checkout under iteration.
 
 ## Gate
