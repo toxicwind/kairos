@@ -69,20 +69,29 @@ function resolveDispatch(cmd0: string, argv0: string[]): [string, string[]] {
 
 if (cmd === "run" || cmd === "detach" || cmd === "bg") {
   let deadline: string | undefined;
+  let maxTime: string | undefined;
   const named: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--deadline" && i + 1 < rest.length) deadline = rest[++i];
     else if (a.startsWith("--deadline="))
       deadline = a.slice("--deadline=".length);
+    else if (a === "--max-time" && i + 1 < rest.length) maxTime = rest[++i];
+    else if (a.startsWith("--max-time="))
+      maxTime = a.slice("--max-time=".length);
     else if (a === "--") {
-      named.push(...rest.slice(i));
+      // The `--` delimiter is consumed (never leaks into the child argv); the
+      // tokens AFTER it are the real command.
+      named.push(...rest.slice(i + 1));
       break;
     } else named.push(a);
   }
   // Runner-level meta flags (--cwd/--env/--id) are stripped inside the runner's
-  // parseArgs; keep them in `named` so the deadline is the ONLY flag consumed here.
+  // parseArgs; keep them in `named` so the deadline/max-time are the ONLY flags
+  // consumed here. RF_DEADLINE threads the strict absolute deadline; RF_MAX_TIME
+  // is the speculation trigger threshold (breach at max-time → detach + race).
   if (deadline !== undefined) process.env.RF_DEADLINE = deadline;
+  if (maxTime !== undefined) process.env.RF_MAX_TIME = maxTime;
   rest = named;
 }
 
