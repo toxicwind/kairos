@@ -8,7 +8,7 @@
  * Usage: bun scripts/coverage-gate.ts  (from the kairos product root)
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const TARGET_LINES = 90;
@@ -16,12 +16,35 @@ const TARGET_FUNCS = 90;
 const COVERAGE_DIR = join(process.cwd(), "coverage");
 const LCOV = join(COVERAGE_DIR, "lcov.info");
 
-// Run the suite with lcov output.
-const run = spawnSync(
-  "bun",
-  ["test", "--coverage", "--coverage-reporter=lcov"],
-  { stdio: ["inherit", "inherit", "inherit"] },
-);
+// Run the suite with lcov output. Bun only auto-discovers `.test.ts`/`.spec.ts`;
+// the `.live.ts` twins (the real 90% gate, AGENTS.md §1.9) are passed explicitly
+// so they participate in the coverage measurement.
+function findLiveFiles(dir: string, acc: string[] = []): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return acc;
+  }
+  for (const e of entries) {
+    if (["node_modules", ".git", "dist", "build", "coverage", "target", "vendor"].includes(e)) continue;
+    const p = join(dir, e);
+    let st;
+    try {
+      st = statSync(p);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) findLiveFiles(p, acc);
+    else if (e.endsWith(".live.ts")) acc.push(p);
+  }
+  return acc;
+}
+const liveFiles = findLiveFiles(process.cwd());
+const args = ["test", "--coverage", "--coverage-reporter=lcov", ...liveFiles];
+const run = spawnSync("bun", args, {
+  stdio: ["inherit", "inherit", "inherit"],
+});
 if (run.status !== 0) {
   console.error(`\n[kairos coverage] test suite FAILED (exit ${run.status})`);
   process.exit(run.status ?? 1);
