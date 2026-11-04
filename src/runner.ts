@@ -40,6 +40,7 @@ sessionDir,
   outPath,
 } from "./session.ts";
 import { scold, urgentBreach, notice, sessionLine } from "./notice.ts";
+import { runSpeculative, DEFAULT_DEADLINE_S } from "./speculate.ts";
 
 const HARD_DEADLINE = 4.0; // seconds (4s shim doctrine). NON-NEGOTIABLE.
 const DELEND_CODE_RACE =
@@ -241,6 +242,36 @@ export async function runSession(
       };
     }
     return { verdict: "ok", elapsedMs: 0, exitCode: 0, stdout: "" };
+  }
+
+  // KHSR speculative-race: when --max-time is set, route through runSpeculative
+  // (Tier 0 normal run / Tier 1 breach→detach). The agent call returns at the
+  // Tier-1 handoff with a session id; hephaistos races a faster candidate.
+  const maxTimeRaw = process.env.RF_MAX_TIME;
+  if (maxTimeRaw !== undefined && maxTimeRaw.trim() !== "") {
+    const maxTimeS = Number(maxTimeRaw);
+    const deadlineSRaw = process.env.RF_DEADLINE;
+    const deadlineS =
+      deadlineSRaw !== undefined && deadlineSRaw.trim() !== ""
+        ? Number(deadlineSRaw)
+        : DEFAULT_DEADLINE_S;
+    const spec = await runSpeculative(segmentsToCmd(p.segments, p.ops), {
+      maxTimeS: Number.isFinite(maxTimeS) ? maxTimeS : 10,
+      deadlineS: Number.isFinite(deadlineS) ? deadlineS : DEFAULT_DEADLINE_S,
+      cwd: p.cwd,
+      env: p.env,
+    });
+    if (spec.verdict === "ok") {
+      if (spec.stdout) process.stdout.write(spec.stdout);
+      return {
+        verdict: "ok",
+        elapsedMs: 0,
+        exitCode: spec.exitCode ?? 0,
+        stdout: spec.stdout,
+      };
+    }
+    // breach: return the session id contract (already emitted by runSpeculative).
+    return { verdict: "breach", elapsedMs: 0, exitCode: 0, stdout: "" };
   }
 
   const t0 = performance.now();
