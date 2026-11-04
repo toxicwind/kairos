@@ -1,12 +1,13 @@
-# kairos bash glue — GENERATED from pens/olympus/products/kairos/src/policy.ts (bun SSOT).
-# Regenerate: bun run pens/olympus/products/kairos/src/cli.ts init > pens/olympus/products/kairos/shim.sh
-_2S_GUARD_SRC="/home/toxic/pens/olympus/products/kairos/src/init.ts"
+
+# kairos bash glue — GENERATED from pens/ergasterion/products/kairos/src/policy.ts (bun SSOT).
+# Regenerate: bun run pens/ergasterion/products/kairos/src/cli.ts init > pens/ergasterion/products/kairos/shim.sh
+_2S_GUARD_SRC="/home/toxic/pens/ergasterion/products/kairos/src/init.ts"
 RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="${RF_QUIET:-1}"
 export RF_DEADLINE="${RF_DEADLINE:-4.0}"
-export DELEND_CODE_RACE="${DELEND_CODE_RACE:-/home/toxic/pens/ergasterion/hephaistos/plugins/code-race/src/index.ts}"
+export DELEND_CODE_RACE="${DELEND_CODE_RACE:-/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts}"
 # rg agent-first defaults (dots file sat empty+unwired since 2026-10-19 —
 # kappa 2026-10-27: raw rg defaults caused megabyte line dumps on binaries
 # and inconsistent case handling across every agent shell)
@@ -143,3 +144,151 @@ timeout() { local _t="${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126;
 # Agent-child enforcement comes from BASH_ENV re-sourcing this generated shim,
 # not from exported functions; same guarantee, zero env pollution.
 export BASH_2S_SHIM=1
+
+
+# kairos bash glue — GENERATED from pens/ergasterion/products/kairos/src/policy.ts (bun SSOT).
+# Regenerate: bun run pens/ergasterion/products/kairos/src/cli.ts init > pens/ergasterion/products/kairos/shim.sh
+_2S_GUARD_SRC="/home/toxic/pens/ergasterion/products/kairos/src/init.ts"
+RF_BIN="$HOME/.local/bin/run-fast"
+[ -x "$RF_BIN" ] || RF_BIN="$HOME/.local/bin/run-fast"
+[ -x "$RF_BIN" ] || return 0
+export RF_QUIET="${RF_QUIET:-1}"
+export RF_DEADLINE="${RF_DEADLINE:-4.0}"
+export DELEND_CODE_RACE="${DELEND_CODE_RACE:-/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts}"
+# rg agent-first defaults (dots file sat empty+unwired since 2026-10-19 —
+# kappa 2026-10-27: raw rg defaults caused megabyte line dumps on binaries
+# and inconsistent case handling across every agent shell)
+export RIPGREP_CONFIG_PATH="${RIPGREP_CONFIG_PATH:-$HOME/.config/ripgrep/config}"
+
+# kairos ENFORCES the 2s rule for AGENT tool shells (non-interactive, sourced
+# via BASH_ENV) but must NOT hijack an interactive human's bash: the DEBUG trap
+# fires before every command and the head/tail/wc/timeout wrappers cancel real
+# pipelines, so leaking them into ~/.bashrc breaks interactive use.
+#
+# Mode is a single explicit switch, defaulting to the shell's role: interactive
+# -> idle (no trap, no wrappers, real binaries), non-interactive -> enforce.
+# Set KAIROS_ENFORCE explicitly (0 idle / 1 enforce) to override.
+if [ -z "${KAIROS_ENFORCE:-}" ]; then
+  if [[ $- == *i* ]]; then export KAIROS_ENFORCE=0; else export KAIROS_ENFORCE=1; fi
+fi
+if [ "$KAIROS_ENFORCE" != "1" ]; then
+  export KAIROS_SHIM_MODE=interactive
+  trap - DEBUG 2>/dev/null || true
+  # Clear any wrapper functions inherited from a prior agent-shell load so the
+  # current (interactive) shell gets real binaries again.
+  unset -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head wc 2>/dev/null || true
+  return 0 2>/dev/null || true
+fi
+export KAIROS_SHIM_MODE=agent
+
+_2s_urgent() {
+  # MOSTLY INVISIBLE: kairos fixes, it doesn't scold. The banner only shows in
+  # diagnostics (KAIROS_DEBUG=1). Default: silent — the work still happens via
+  # run-fast routing, the transcript just stays clean.
+  [ "${KAIROS_DEBUG:-0}" = "1" ] || return 0
+  echo "════ [kairos GUARD — URGENT, CANCELLED] ════"
+  echo "  $1"
+  echo "  MUST DO: $2"
+}
+
+_2s_slow() {
+    # Re-entry guard: a run-fast/kairos child marks RUN_FAST_ACTIVE=1; wrappers
+    # in that child must use the REAL binary, never re-route to run-fast.
+    # Without this, bun run X under run-fast spawns bash (BASH_ENV sources
+    # this shim) then bun() routes to run-fast again: unbounded fork storm
+    # (observed: 9400 processes of kairos run bun run forge.ts borrow).
+    [ -n "${RUN_FAST_ACTIVE:-}" ] && return 1
+    case "$1:$2" in
+    git:push|git:pull|git:fetch|git:clone|git:merge|git:rebase|git:submodule|git:gc|git:filter-repo) return 0 ;;
+    bun:install|bun:add|bun:remove|bun:update|bun:test|bun:build|bun:typecheck|bun:publish|bun:link|bun:run) return 0 ;;
+    npm:install|npm:ci|npm:update|npm:build|npm:test|npm:typecheck|npm:publish) return 0 ;;
+    tsgo:noEmit|tsgo:check|tsgo:typecheck) return 0 ;;
+    turbo:typecheck|turbo:build|turbo:test|turbo:run) return 0 ;;
+    tsc:noEmit|tsc:build) return 0 ;;
+    pnpm:add|pnpm:install|pnpm:update) return 0 ;;
+    pip:install) return 0 ;;
+    pip3:install) return 0 ;;
+    uv:sync|uv:add|uv:lock) return 0 ;;
+    gh:repo|gh:pr|gh:release|gh:api) return 0 ;;
+    gitleaks:git|gitleaks:detect) return 0 ;;
+    codebase-memory:index_repository|codebase-memory:get_file_outline|codebase-memory:semantic_search) return 0 ;;
+    cargo:build|cargo:test|cargo:check) return 0 ;;
+    go:build|go:test|go:vet) return 0 ;;
+    ffs:index|ffs:map) return 0 ;;
+    make:*) return 0 ;;
+  *) return 1 ;;
+esac
+}
+
+_2s_guard() {
+  local _c="${1:-$BASH_COMMAND}"
+  case "$_c" in
+    _2s_*|*two-sec*|*print_doctrine_hint*) return 0 ;;
+  *">/dev/null"*|*"> /dev/null"*|*"2>/dev/null"*|*"2> /dev/null"*|*"1>/dev/null"*|*"1> /dev/null"*|*"&>/dev/null"*)
+      _2s_urgent "output discarded to /dev/null" "drop the redirect — full output or bust"; return 1 ;;
+  *"| true"*|*"|true"*|*"|  true"*)
+      _2s_urgent "'| true' swallows the exit code" "handle the failure explicitly"; return 1 ;;
+  *"2>&1"*)
+      _2s_urgent "'2>&1' merges stderr into stdout" "keep streams separate — no &2 merges"; return 1 ;;
+  *[[:space:]]sleep[[:space:]][0-9]*)
+      _2s_urgent "blocking sleep" "readiness-check or background it — never sleep to wait"; return 1 ;;
+  esac
+  return 0
+}
+
+set -o pipefail
+if [ -z "${_2S_TRAP_ARMED:-}" ]; then
+  export _2S_TRAP_ARMED=1
+  # notify-only trap: unwrapped binaries (echo, ls…) get ban notices;
+  # deterministic CANCEL happens inside the wrappers (extdebug can't cancel
+  # function traps on bash 5.3 — tested empirically).
+  trap '_2s_guard' DEBUG
+fi
+
+_2s_wrap() { # $1=bin, rest=args — guard-check then slow-route
+  local b="$1"; shift
+  local probe
+  probe="$b $*"
+  # AUTONOMOUS: a guard violation prints the urgent notice but does NOT cancel.
+  # Route through the deadline runner so the work still lands (truncators get
+  # rewritten, slow routes detach, breaches auto-race). KAIROS_STRICT=1 keeps
+  # the old hard-cancel for enforcement hosts.
+  if ! _2s_guard "$probe"; then
+    if [ "${KAIROS_STRICT:-0}" = "1" ]; then return 126; fi
+    "$RF_BIN" "$b" "$@" 2>/dev/null || "$RF_BIN" "$@"
+    return $?
+  fi
+  if _2s_slow "$b" "$1"; then "$RF_BIN" "$b" "$@"; else command "$b" "$@"; fi
+}
+git()  {
+  # credential-helper protocol purity: `git credential-*` writes the credential
+  # stream to STDOUT. Any banner/notice on stdout corrupts it (push 401s).
+  # Never route credential helpers through run-fast — direct exec, no wrapper.
+  case "$1" in credential-*|credential) command git "$@"; return ;; esac
+  _2s_wrap git "$@"
+}
+bun()  { _2s_wrap bun "$@"; }
+npm()  { _2s_wrap npm "$@"; }
+pip()  { _2s_wrap pip "$@"; }
+pip3() { _2s_wrap pip3 "$@"; }
+uv()   { _2s_wrap uv "$@"; }
+gh()   { _2s_wrap gh "$@"; }
+gitleaks() { _2s_wrap gitleaks "$@"; }
+cargo() { _2s_wrap cargo "$@"; }
+go()   { _2s_wrap go "$@"; }
+uv()   { if _2s_slow uv "$1";   then "$RF_BIN" uv "$@";   else command uv "$@";   fi; }
+gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@";   fi; }
+go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
+timeout() { local _t="${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; if [ -n "${RUN_FAST_ACTIVE:-}" ]; then command timeout "$_t" "$@"; return; fi; "$RF_BIN" --deadline "$_t" "$@"; }
+# head/tail/wc are FULLY invisible — no wrappers, no bans, no ffs routing. They
+# run the real binaries. Display truncation (head/tail/wc) is the agent's call;
+# full output is live-persisted to the session file regardless, so nothing is
+# ever lost. kairos does not scold or cancel these.
+
+# Deliberately DO NOT export -f the wrapper functions. Exporting head/tail/
+# wc/git/bun/... leaks them into the env of every child and interactive shell
+# (observed: BASH_FUNC_head%%/tail%%/wc%% persist and hijack user bash).
+# Agent-child enforcement comes from BASH_ENV re-sourcing this generated shim,
+# not from exported functions; same guarantee, zero env pollution.
+export BASH_2S_SHIM=1
+
