@@ -304,3 +304,120 @@ export async function runSpeculative(
   } catch {}
   return { verdict: "ok", id, exitCode, stdout };
 }
+
+export interface ArbitrateInput {
+  id: string;
+  shape: string;
+  deadlineAt: number;
+  /** Wait on the ORIGINAL completion (never killed — it is the fallback). */
+  original: () => Promise<{ exitCode: number; stdout: string }>;
+  /** Candidate lanes, each already cheap-verified (Cycle 3 gate). */
+  candidates: Array<() => Promise<{ cmd: string; stdout: string }>>;
+  /** Cancel the original ONLY after a candidate's correctness is confirmed. */
+  cancelOriginal?: () => Promise<void>;
+}
+
+export interface ArbitrateResult {
+  winner: "original" | "candidate" | "none";
+  exitCode: number | null;
+  stdout: string;
+  candidateCmd?: string;
+  speculationFailed?: boolean;
+}
+
+/**
+ * Tier 3 — first-to-correct arbitration (MetaPOCS-style cheapest-correct exit).
+ * Races the original against verified candidates; the FIRST lane to produce a
+ * correct result wins. On deadline hit with no winner: speculation-failed —
+ * the original is re-attached (NEVER cancelled; it is the fallback of last
+ * resort) and the caller reads its output via the attach channel.
+ */
+export async function arbitrate(input: ArbitrateInput): Promise<ArbitrateResult> {
+  const lanes: Array<Promise<ArbitrateResult>> = [];
+
+  // Original lane: exit 0 = correct, wins immediately.
+  lanes.push(
+    input.original().then((o) => ({
+      winner: "original" as const,
+      exitCode: o.exitCode,
+      stdout: o.stdout,
+    })),
+  );
+
+  // Candidate lanes: first to RESOLVE (they are pre-verified) wins; the
+  // original is cancelled only AFTER the candidate's correctness is confirmed.
+  for (const c of input.candidates) {
+    lanes.push(
+      c().then((cand) => ({
+        winner: "candidate" as const,
+        exitCode: 0,
+        stdout: cand.stdout,
+        candidateCmd: cand.cmd,
+      })),
+    );
+  }
+
+  // Deadline lane: no winner → speculation-failed, original re-attached.
+  const deadlineMs = Math.max(0, input.deadlineAt - Date.now());
+  lanes.push(
+    new Promise<ArbitrateResult>((resolve) =>
+      setTimeout(
+        () => resolve({ winner: "none", exitCode: null, stdout: "", speculationFailed: true }),
+        deadlineMs,
+      ),
+    ),
+  );
+
+  const result = await Promise.race(lanes);
+
+  if (result.winner === "candidate" && input.cancelOriginal) {
+    // Correctness confirmed (candidate lane resolved); now cancel the original.
+    await input.cancelOriginal();
+  }
+  return result;
+}
+
+export interface LedgerRow {
+  command_shape: string;
+  winner: "original" | "candidate" | "none";
+  candidate: string | null;
+  sample_speedup: number;
+  full_speedup: number;
+  verify_cost_ms: number;
+  ts?: number;
+}
+
+/** Append one race row to the JSONL ledger (Tier 4). */
+export function recordRace(ledgerPath: string, row: LedgerRow): void {
+  const line = JSON.stringify({ ...row, ts: Date.now() }) + "\n";
+  // appendSync-free: open in append mode, write, close (atomic enough for the ledger).
+  const fd = openSync(ledgerPath, "a");
+  try {
+    writeSync(fd, line, null, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Read all ledger rows (empty array when the ledger does not exist). */
+export function readLedger(ledgerPath: string): LedgerRow[] {
+  try {
+    return readFileSync(ledgerPath, "utf-8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as LedgerRow);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Tier 4 no-speculate mark: a shape with >=3 original-wins has proven that
+ * speculation never beats it — subsequent runs skip Tier 1+ entirely.
+ */
+export function shouldNoSpeculate(ledgerPath: string, shape: string): boolean {
+  const rows = readLedger(ledgerPath).filter((r) => r.command_shape === shape);
+  if (rows.length < 3) return false;
+  const last3 = rows.slice(-3);
+  return last3.every((r) => r.winner === "original");
+}
