@@ -174,17 +174,17 @@ describe("Cycle 2 — Tier 1: breach detaches instead of killing", () => {
 });
 describe("Cycle 3 — Tier 2: hephaistos race invocation + cheap verify gate", () => {
   test(
-    "at breach, kairos invokes the race entrypoint with {id, shape} JSON on stdin",
+    "at breach, kairos invokes the race entrypoint with the command shape as argv + spec context env",
     async () => {
       // Fake race entrypoint: a REAL script (no mock framework) that records
-      // the stdin payload it received to a file, then exits 0.
+      // the argv + env it received to a file, then exits 0. The plugin's real
+      // contract is `race "<cmd>"` argv + KAIROS_SPEC_* env (no stdin).
       const raceBin = join(SESSION_DIR, "fake-race.ts");
       const raceSeen = join(SESSION_DIR, "race-seen.json");
       await Bun.write(
         raceBin,
         `import { writeFileSync } from "node:fs";
-const raw = await new Response(Bun.stdin.stream()).text();
-writeFileSync(${JSON.stringify(raceSeen)}, raw);
+writeFileSync(${JSON.stringify(raceSeen)}, JSON.stringify({ argv: process.argv.slice(2), specId: process.env.KAIROS_SPEC_ID, deadlineAt: process.env.KAIROS_SPEC_DEADLINE_AT }));
 console.log("race done");`,
       );
       const { out, err, exit } = await runCli(
@@ -203,9 +203,10 @@ console.log("race done");`,
       const seen = JSON.parse(seenRaw);
       const id = extractId(out + err);
       expect(id).not.toBeNull();
-      expect(seen.id).toBe(id);
-      expect(typeof seen.shape).toBe("string");
-      expect(seen.shape).toContain("sleep");
+      expect(seen.specId).toBe(id);
+      // The command shape rides as the argv command line.
+      expect(seen.argv.join(" ")).toContain("sleep");
+      expect(Number(seen.deadlineAt)).toBeGreaterThan(Date.now());
     },
     10_000,
   );
@@ -255,8 +256,7 @@ describe("Cycle 3b — Tier 3 edge cases: speculation viability", () => {
     await Bun.write(
       raceBin,
       `import { writeFileSync } from "node:fs";
-const raw = await new Response(Bun.stdin.stream()).text();
-writeFileSync(${JSON.stringify(raceSeen)}, raw);`,
+writeFileSync(${JSON.stringify(raceSeen)}, JSON.stringify({ argv: process.argv.slice(2), specId: process.env.KAIROS_SPEC_ID }));`,
     );
     const { exit } = await runCli(
       ["run", "--max-time", "1", "--deadline", "2", "--", "sleep", "3"],
@@ -275,8 +275,7 @@ writeFileSync(${JSON.stringify(raceSeen)}, raw);`,
     await Bun.write(
       raceBin,
       `import { writeFileSync } from "node:fs";
-const raw = await new Response(Bun.stdin.stream()).text();
-writeFileSync(${JSON.stringify(raceSeen)}, raw);`,
+writeFileSync(${JSON.stringify(raceSeen)}, JSON.stringify({ argv: process.argv.slice(2), specId: process.env.KAIROS_SPEC_ID }));`,
     );
     await runCli(
       ["run", "--max-time", "1", "--deadline", "90", "--", "sleep", "3"],
