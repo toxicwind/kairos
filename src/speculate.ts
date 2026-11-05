@@ -88,9 +88,11 @@ export function raceBin(): string {
 }
 
 /**
- * Tier 2 — invoke the hephaistos race entrypoint with {id, shape, deadlineAt}
- * JSON on stdin. Fire-and-forget: the agent call already returned; the race
- * runs in its own process and its verdict lands via the ledger/attach channel.
+ * Tier 2 — invoke the hephaistos race entrypoint. The plugin's REAL contract
+ * (plugins/code-race/src/index.ts main()) takes the command line as a CLI arg:
+ *   delend-code-race "<cmd>" [--2s] [--per-source N] [--race-timeout S]
+ * The speculation context ({id, deadlineAt, hint}) rides as env vars — additive,
+ * no plugin change required. Fire-and-forget: the agent call already returned.
  */
 export async function invokeRace(
   id: string,
@@ -99,23 +101,20 @@ export async function invokeRace(
 ): Promise<void> {
   const bin = raceBin();
   if (!bin || !existsSync(bin)) return;
-  const payload = JSON.stringify({
-    id,
-    shape,
-    deadlineAt,
-    // Guidance for the smith: the winning candidate is often the REMOVAL of a
-    // trivially-removable command (sleep, pointless waits) — "find a faster
-    // sleep" is the wrong answer; "no sleep at all" is the right one.
-    hint: "the fastest correct command may be the command removed",
-  });
   // Detached spawn: the race OUTLIVES the agent call (the CLI exits at the
-  // Tier-1 handoff; a non-detached child dies with it — observed as empty/partial
-  // race payloads in testing). Bun's detached spawn exposes no writable stdin
-  // stream, so the payload is staged to a temp file and redirected via the shell.
-  const payloadFile = join(sessionDir(), `${id}.race-payload.json`);
-  writeFileAtomic(payloadFile, payload);
+  // Tier-1 handoff; a non-detached child dies with it). `setsid --fork` puts the
+  // race in its own session so it survives even when the CLI is itself a
+  // Bun.spawn child (test harness) that exits right after the handoff.
+  //
+  // CRITICAL: `setsid` does NOT parse env-prefix assignments — `setsid VAR=x cmd`
+  // tries to exec `VAR=x` as a program and fails. The env must go through `env`:
+  //   setsid --fork env VAR=x cmd
   const proc = spawn(
-    ["/bin/bash", "-c", `bun "${bin}" < "${payloadFile}"`],
+    [
+      "/bin/bash",
+      "-c",
+      `setsid --fork env KAIROS_SPEC_ID=${shellQuote([id])} KAIROS_SPEC_DEADLINE_AT=${deadlineAt} bun "${bin}" ${shellQuote([shape])} </dev/null >/dev/null 2>&1 &`,
+    ],
     {
       stdin: "ignore",
       stdout: "ignore",
@@ -124,7 +123,10 @@ export async function invokeRace(
     },
   );
   proc.unref();
-  await proc.exited;
+}
+
+function shellQuote(parts: string[]): string {
+  return parts.map((p) => `'${p.replaceAll("'", `'\\''`)}'`).join(" ");
 }
 
 export interface CandidateVerdict {
