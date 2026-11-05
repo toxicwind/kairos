@@ -30,7 +30,7 @@ export function emitBashShim(): string {
   return `# kairos bash glue — GENERATED from pens/ergasterion/products/kairos/src/policy.ts (bun SSOT).
 # Regenerate: bun run pens/ergasterion/products/kairos/src/cli.ts init > pens/ergasterion/products/kairos/shim.sh
 _2S_GUARD_SRC="${__filename}"
-RF_BIN="$HOME/.local/bin/run-fast"
+RF_BIN="$HOME/.local/bin/kairos"
 [ -x "$RF_BIN" ] || RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="\${RF_QUIET:-1}"

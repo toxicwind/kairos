@@ -106,8 +106,11 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     }
   });
 
-  test("shim emits canonical paths: RF_BIN via ~/.local/bin, DELEND_CODE_RACE at hephaistos", () => {
+  test("shim emits canonical paths: kairos-first RF_BIN, run-fast alias compat, DELEND_CODE_RACE at hephaistos", () => {
     const shim = emitBashShim();
+    // kairos is the CANONICAL bin name (KHSR rename); run-fast survives as an
+    // alias so existing scripts/bashrc keep working (additive-only).
+    expect(shim).toContain("$HOME/.local/bin/kairos");
     expect(shim).toContain("$HOME/.local/bin/run-fast");
     expect(shim).toContain(
       "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts",
