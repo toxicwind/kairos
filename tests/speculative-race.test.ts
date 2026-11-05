@@ -289,3 +289,98 @@ writeFileSync(${JSON.stringify(raceSeen)}, JSON.stringify({ argv: process.argv.s
     expect(seen).not.toBe("");
   });
 });
+
+describe("Cycle 4 — Tier 3: first-to-correct arbitration + 90s re-attach", () => {
+  test("arbitrate: original exits 0 before deadline → original wins, candidates dropped", async () => {
+    const { arbitrate } = await import("../src/speculate.ts");
+    // Original completes quickly with exit 0; candidate is slower.
+    const result = await arbitrate({
+      id: "arb-1",
+      shape: "sleep 3",
+      deadlineAt: Date.now() + 60_000,
+      original: () => Promise.resolve({ exitCode: 0, stdout: "original-out\n" }),
+      candidates: [async () => ({ cmd: "echo candidate", stdout: "candidate-out\n" })],
+    });
+    expect(result.winner).toBe("original");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("original-out\n");
+  });
+
+  test("arbitrate: verified candidate finishes first → candidate wins, original cancelled after correctness", async () => {
+    const { arbitrate } = await import("../src/speculate.ts");
+    // Original is slow (never resolves in time); candidate is fast and correct.
+    const result = await arbitrate({
+      id: "arb-2",
+      shape: "sleep 3",
+      deadlineAt: Date.now() + 60_000,
+      original: () => new Promise((r) => setTimeout(() => r({ exitCode: 0, stdout: "original\n" }), 5000)),
+      candidates: [async () => ({ cmd: "echo candidate", stdout: "candidate\n" })],
+      cancelOriginal: async () => {},
+    });
+    expect(result.winner).toBe("candidate");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("candidate\n");
+  });
+
+  test("arbitrate: deadline hit with no winner → speculation-failed, re-attach original", async () => {
+    const { arbitrate } = await import("../src/speculate.ts");
+    let cancelled = false;
+    const result = await arbitrate({
+      id: "arb-3",
+      shape: "sleep 3",
+      deadlineAt: Date.now() + 300, // 300ms window
+      original: () => new Promise((r) => setTimeout(() => r({ exitCode: 0, stdout: "late\n" }), 2000)),
+      candidates: [() => new Promise((r) => setTimeout(() => r({ cmd: "echo x", stdout: "x\n" }), 2000))],
+      cancelOriginal: async () => { cancelled = true; },
+    });
+    expect(result.winner).toBe("none");
+    expect(result.speculationFailed).toBe(true);
+    // The original is NOT cancelled on deadline-hit — it is re-attached instead.
+    expect(cancelled).toBe(false);
+  });
+});
+
+describe("Cycle 5 — Tier 4: ledger + no-speculate marks", () => {
+  test("every race appends a JSONL row to the ledger", async () => {
+    const { recordRace, readLedger } = await import("../src/speculate.ts");
+    const ledgerPath = join(SESSION_DIR, "speculation-ledger.jsonl");
+    recordRace(ledgerPath, {
+      command_shape: "grep -r x /tmp",
+      winner: "original",
+      candidate: null,
+      sample_speedup: 0,
+      full_speedup: 1,
+      verify_cost_ms: 12,
+    });
+    recordRace(ledgerPath, {
+      command_shape: "grep -r x /tmp",
+      winner: "candidate",
+      candidate: "ffs grep x",
+      sample_speedup: 2.5,
+      full_speedup: 3.1,
+      verify_cost_ms: 40,
+    });
+    const rows = readLedger(ledgerPath);
+    expect(rows.length).toBe(2);
+    expect(rows[0].winner).toBe("original");
+    expect(rows[1].candidate).toBe("ffs grep x");
+  });
+
+  test("shape with >=3 original-wins gets no-speculate", async () => {
+    const { recordRace, shouldNoSpeculate } = await import("../src/speculate.ts");
+    const ledgerPath = join(SESSION_DIR, "speculation-ledger-ns.jsonl");
+    for (let i = 0; i < 3; i++) {
+      recordRace(ledgerPath, {
+        command_shape: "sleep 30",
+        winner: "original",
+        candidate: null,
+        sample_speedup: 0,
+        full_speedup: 1,
+        verify_cost_ms: 5,
+      });
+    }
+    expect(shouldNoSpeculate(ledgerPath, "sleep 30")).toBe(true);
+    // A different shape is not marked.
+    expect(shouldNoSpeculate(ledgerPath, "grep -r x /tmp")).toBe(false);
+  });
+});
