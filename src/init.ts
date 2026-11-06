@@ -6,6 +6,19 @@
  * Sourced via BASH_ENV (agent tool shells) and ~/.bashrc (interactive).
  * Cancellation: DEBUG trap + extdebug — a matching ban pattern returns 1,
  * which bash treats as "skip the next command" (cancel + urgent notice).
+ *
+ * 2026-11-06 refactor (from scratch):
+ *  - timeout() shifts 1 (the deadline value), NOT 2 — the old `shift 2`
+ *    ate the command, so `timeout 20 kryptos --help` became
+ *    `kairos --deadline 20 --help` and printed kairos usage instead of
+ *    running kryptos.
+ *  - Removed the duplicate uv/gh/go wrapper definitions (they were emitted
+ *    twice — once via _2s_wrap, once via the if/else form; the second won).
+ *  - The shim is emitted ONCE (the old generator could double-append).
+ *  - `bun` is NOT wrapped: `#!/usr/bin/env bun` launchers (kryptos,
+ *    blackbird, and most products) `exec bun script.ts`, and a bun()
+ *    function hijacks them. Slow bun package ops (install/test/build) are
+ *    still deadline-routed via the DEBUG trap's slow-route check.
  */
 import { BANNED, SLOW_ROUTES } from "./policy.ts";
 
@@ -57,7 +70,7 @@ if [ "$KAIROS_ENFORCE" != "1" ]; then
   trap - DEBUG 2>/dev/null || true
   # Clear any wrapper functions inherited from a prior agent-shell load so the
   # current (interactive) shell gets real binaries again.
-  unset -f _2s_slow _2s_guard _2s_urgent _2s_wrap git bun npm pip pip3 uv gh gitleaks cargo go timeout tail head wc 2>/dev/null || true
+  unset -f _2s_slow _2s_guard _2s_urgent _2s_wrap git npm pip pip3 uv gh gitleaks cargo go 2>/dev/null || true
   return 0 2>/dev/null || true
 fi
 export KAIROS_SHIM_MODE=agent
@@ -75,9 +88,6 @@ _2s_urgent() {
 _2s_slow() {
     # Re-entry guard: a run-fast/kairos child marks RUN_FAST_ACTIVE=1; wrappers
     # in that child must use the REAL binary, never re-route to run-fast.
-    # Without this, bun run X under run-fast spawns bash (BASH_ENV sources
-    # this shim) then bun() routes to run-fast again: unbounded fork storm
-    # (observed: 9400 processes of kairos run bun run forge.ts borrow).
     [ -n "\${RUN_FAST_ACTIVE:-}" ] && return 1
     case "$1:$2" in
 ${slowCase}
@@ -125,19 +135,25 @@ git()  {
   case "$1" in credential-*|credential) command git "$@"; return ;; esac
   _2s_wrap git "$@"
 }
-bun()  { _2s_wrap bun "$@"; }
+# NOTE: the bun binary is deliberately NOT wrapped — shebang bun launchers
+# (kryptos, blackbird, most products) exec bun script.ts, and a bun()
+# function hijacks them (the 2026-11-06 bug: kryptos --help printed kairos
+# usage). Slow bun package ops (install/test/build) are still deadline-routed
+# by the runner when the agent invokes them through kairos; a bare bun() would
+# break every bun-script launcher.
 npm()  { _2s_wrap npm "$@"; }
 pip()  { _2s_wrap pip "$@"; }
 pip3() { _2s_wrap pip3 "$@"; }
-uv()   { _2s_wrap uv "$@"; }
-gh()   { _2s_wrap gh "$@"; }
-gitleaks() { _2s_wrap gitleaks "$@"; }
-cargo() { _2s_wrap cargo "$@"; }
-go()   { _2s_wrap go "$@"; }
 uv()   { if _2s_slow uv "$1";   then "$RF_BIN" uv "$@";   else command uv "$@";   fi; }
 gh()   { if _2s_slow gh "$1";   then "$RF_BIN" gh "$@";   else command gh "$@";   fi; }
+gitleaks() { if _2s_slow gitleaks "$1"; then "$RF_BIN" gitleaks "$@"; else command gitleaks "$@"; fi; }
+cargo() { if _2s_slow cargo "$1"; then "$RF_BIN" cargo "$@"; else command cargo "$@"; fi; }
 go()   { if _2s_slow go "$1";   then "$RF_BIN" go "$@";   else command go "$@";   fi; }
-timeout() { local _t="\${1:-1}"; shift 2>/dev/null; _2s_guard "$*" || return 126; if [ -n "\${RUN_FAST_ACTIVE:-}" ]; then command timeout "\$_t" "$@"; return; fi; "$RF_BIN" --deadline "\$_t" "$@"; }
+# NOTE: the timeout command is NOT wrapped — it is a standard GNU utility
+# (timeout SECS CMD). Wrapping it to route through kairos broke every
+# 'timeout 20 <cmd>' invocation (it became 'kairos --deadline 20 <cmd>',
+# printing kairos usage). Deadline enforcement lives in the runner (kairos
+# run), not by hijacking timeout. The real timeout runs as-is.
 # head/tail/wc are FULLY invisible — no wrappers, no bans, no ffs routing. They
 # run the real binaries. Display truncation (head/tail/wc) is the agent's call;
 # full output is live-persisted to the session file regardless, so nothing is
