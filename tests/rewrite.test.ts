@@ -53,19 +53,12 @@ describe("rewriteBanned", () => {
   test("glob <pattern> → ffs glob", () => {
     expect(rewriteBanned(["glob", "*.ts"])).toEqual(["ffs", "glob", "*.ts"]);
   });
-  test("grep/rg <pattern> → ffs grep --root", () => {
-    expect(rewriteBanned(["grep", "foo"])).toEqual([
-      "ffs",
-      "grep",
-      "foo",
-      "--root",
-      ".",
-    ]);
+  test("grep/rg <pattern> → argos-grep (architect order 2026-11-06)", () => {
+    expect(rewriteBanned(["grep", "foo"])).toEqual(["argos-grep", "foo"]);
     expect(rewriteBanned(["rg", "bar", "src"])).toEqual([
-      "ffs",
-      "grep",
+      "argos-grep",
       "bar",
-      "--root",
+      "--corpus",
       "src",
     ]);
   });
