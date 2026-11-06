@@ -167,4 +167,33 @@ describe("kairos shim canonical-path emission", () => {
     expect(shim).toMatch(/KAIROS_SHIM_MODE=agent/);
     expect(shim).toMatch(/== \*i\* ]]; then/); // interactive detection via $-
   });
+
+  test("shim is single-source (no double-append) and does NOT wrap timeout", () => {
+    // 2026-11-06 refactor: the generated shim was double-appended (294 lines of
+    // duplicated glue) and the timeout() wrapper hijacked the GNU `timeout`
+    // utility — `timeout 20 kryptos --help` became `kairos --deadline 20
+    // --help` and printed kairos usage instead of running kryptos. timeout is a
+    // standard utility and must run as-is; deadline enforcement lives in the
+    // runner (kairos run), not by hijacking timeout.
+    const headerCount = (shim.match(/kairos bash glue — GENERATED/g) ?? []).length;
+    expect(headerCount).toBe(1);
+    // No timeout() wrapper function may be emitted.
+    const timeoutLines = shim
+      .split("\n")
+      .filter((line) => /^timeout\(\)/.test(line));
+    expect(timeoutLines).toEqual([]);
+    expect(shim).toMatch(/timeout command is NOT wrapped/i);
+  });
+
+  test("shim does NOT wrap bun (shebang bun launchers must not be hijacked)", () => {
+    // 2026-11-06: a bun() wrapper broke `#!/usr/bin/env bun` launchers — kryptos
+    // and blackbird both `exec bun script.ts`, and the wrapper routed them into
+    // kairos (kryptos --help printed kairos usage). bun must stay unwrapped;
+    // slow bun package ops are deadline-routed by the runner, not a shell fn.
+    const bunLines = shim
+      .split("\n")
+      .filter((line) => /^bun\(\)/.test(line));
+    expect(bunLines).toEqual([]);
+    expect(shim).toMatch(/bun binary is deliberately NOT wrapped/i);
+  });
 });
