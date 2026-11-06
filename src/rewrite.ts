@@ -69,14 +69,17 @@ export function rewriteBanned(seg: string[]): string[] | null {
       return null;
     case "grep":
     case "rg":
-      // grep/rg <pattern> → ffs grep <pattern> --root <dir>. ffs greps
-      // recursively+gitignore-aware by default (ripgrep semantics), so no
-      // -r/-R needed; only the truly-simple bare-pattern shape is mapped.
+      // grep/rg <pattern> [path] → argos-grep <pattern> — the argos index
+      // returns the exact passage + ax_path for kilobytes instead of a grep
+      // line-walk (measured 2.7x fewer output tokens). Architect order
+      // 2026-11-06: grep redirects to argos, never a fresh tree walk.
       if (args.length >= 1 && !args[0].startsWith("-")) {
         const pattern = args[0];
         const rest = args.slice(1).filter((a) => !a.startsWith("-"));
         const root = rest.at(-1);
-        return ["ffs", "grep", pattern, "--root", root ?? "."];
+        return root && root !== "."
+          ? ["argos-grep", pattern, "--corpus", root]
+          : ["argos-grep", pattern];
       }
       return null;
     default:
@@ -114,12 +117,12 @@ const REPLACEMENTS: Record<string, string> = {
     "NEVER walk the whole disk: scope to a dir, or use the on-disk ffs index.",
   ].join("\n      "),
   grep: [
-    "rg <pattern> <dir?>  # fast, respects .gitignore",
-    "   or: ffs grep <regex> --root <dir> + --limit N  # index-backed, cheap",
-    "NEVER 'grep -r' a huge tree; prefer rg or the ffs index.",
+    "argos-grep <pattern> [--corpus NAME]  # index-backed passage search, file:line hits",
+    "   or: ffs grep <regex> --root <dir> + --limit N  # for code-content in one repo",
+    "NEVER 'grep -r' a huge tree; argos/ffs indexes already have the answer.",
   ].join("\n      "),
   rg: [
-    "ffs grep <regex> --root <dir>  # use the on-disk index instead of a fresh walk",
+    "argos-grep <pattern>  # use the argos index instead of a fresh walk",
     "   (rg is fine for scoped, single-dir searches).",
   ].join("\n      "),
   cat: "read <path> via the read tool — 1M context, budget-aware outline by default, never truncated.",
