@@ -92,6 +92,8 @@ export const DEADLINE_BUMPS: Record<string, number> = {
   tsc: 10,
   status: 10, // git status (incl --ignored); walks huge trees but 10s is the ceiling
   gh: 10, // gh repo/pr/release/api/issue/search — one-shot GitHub ops (network)
+  "pattern-borrow": 10, // multi-source race (github/arxiv/hf/local BM25)
+  forge: 10, // pattern-forge forge CLI — same multi-source race
 };
 
 /**
@@ -148,6 +150,12 @@ export function deadlineFor(
   const bin = String(args[0] ?? "");
   const sub = effectiveSub(args);
   const clamp = (s: number): number => Math.min(s, MAX_BLOCKING_DEADLINE);
+  // Multi-source borrow/forge tools walk GitHub + arxiv + local BM25 in a
+  // parallel race — genuinely slow, must not be killed at the 2s base (which
+  // returned only the fast paper legs and made the skill look broken).
+  const base = bin.split("/").pop() ?? bin;
+  if (base === "pattern-borrow" || base === "forge")
+    return clamp(DEADLINE_BUMPS[base] ?? MAX_BLOCKING_DEADLINE);
   if (bin === "ffs" || bin.endsWith("/ffs")) {
     // catch the tree-walking reader subcommands and auto-widen their window
     if (sub === "glob" || sub === "find" || sub === "index") return MAX_BLOCKING_DEADLINE;
