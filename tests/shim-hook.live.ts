@@ -5,12 +5,13 @@ import { join } from "node:path";
 import { emitBashShim } from "../src/init.ts";
 
 const HOME = homedir();
-const RF_BIN = join(HOME, ".local/bin/run-fast");
-// Canonical live run-fast home (post-reorg: ranch/products/ops owns the shim).
-const OPS_RUN_FAST = join(HOME, "pens/ranch/products/ops/run-fast");
+// Canonical name is kairos (run-fast is the retired alias, 2026-11-08).
+const RF_BIN = join(HOME, ".local/bin/kairos");
+// Canonical live kairos home (post-reorg: ranch/products/ops owns the shim).
+const OPS_RUN_FAST = join(HOME, "pens/ranch/products/ops/bin/kairos");
 
 describe("kairos run-fast hook is LIVE (anomaly #57 regression)", () => {
-  test("~/.local/bin/run-fast resolves to an existing executable", () => {
+  test("~/.local/bin/kairos resolves to an existing executable", () => {
     expect(existsSync(RF_BIN)).toBe(true);
     const real = realpathSync(RF_BIN);
     expect(existsSync(real)).toBe(true);
@@ -18,24 +19,24 @@ describe("kairos run-fast hook is LIVE (anomaly #57 regression)", () => {
     expect(real).not.toContain("pens/estate/products/estate-ops");
   });
 
-  test("~/.local/bin/run-fast resolves to the live ops shim", () => {
+  test("~/.local/bin/kairos resolves to the live ops shim", () => {
     const real = realpathSync(RF_BIN);
     expect(real).toBe(OPS_RUN_FAST);
   });
 
-  test("the ops run-fast shim points KAIROS_DIR at the live kairos source", () => {
+  test("the ops kairos shim points KAIROS_DIR at the live kairos source", () => {
     const src = require("node:fs").readFileSync(OPS_RUN_FAST, "utf8");
     expect(src).toContain("/home/toxic/pens/ergasterion/products/kairos");
     expect(src).not.toContain("pens/ranch/kairos");
   });
 
-  test("emitted shim resolves RF_BIN via ~/.local/bin (not a dead estate-ops path)", () => {
+  test("emitted shim resolves RF_BIN via ~/.local/bin/kairos (not a dead estate-ops path)", () => {
     const shim = emitBashShim();
-    expect(shim).toContain("$HOME/.local/bin/run-fast");
+    expect(shim).toContain("$HOME/.local/bin/kairos");
     expect(shim).not.toContain("pens/estate/products/estate-ops");
   });
 
-  test("sourcing the shim in an agent shell hooks git/bun and routes via run-fast", async () => {
+  test("sourcing the shim in an agent shell hooks git/bun and routes via kairos", async () => {
     // Real round-trip: source the generated shim, then run a slow-routed command.
     // It must resolve RF_BIN to the live symlink and complete without ENOENT.
     const proc = Bun.spawn([
