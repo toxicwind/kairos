@@ -11,6 +11,12 @@ export DELEND_CODE_RACE="${DELEND_CODE_RACE:-/home/toxic/pens/ergasterion/produc
 # kappa 2026-10-27: raw rg defaults caused megabyte line dumps on binaries
 # and inconsistent case handling across every agent shell)
 export RIPGREP_CONFIG_PATH="${RIPGREP_CONFIG_PATH:-$HOME/.config/ripgrep/config}"
+# 2026-11-08: /usr/bin/python3 -> python3.14 has a NON-EXECUTABLE target on
+# this box (EACCES on exec, bash exit 126 — reproduced in agent shells and by
+# bare spawn). Pin the working mise python (3.14.7) ahead of /usr/bin so that
+# python3 in every agent/interactive shell resolves to a real interpreter.
+# Verified: /home/toxic/.local/share/mise/installs/python/3.14.7/bin/python3.14
+export PATH="$HOME/.local/share/mise/installs/python/3/bin:$PATH"
 
 # kairos ENFORCES the 2s rule for AGENT tool shells (non-interactive, sourced
 # via BASH_ENV) but must NOT hijack an interactive human's bash: the DEBUG trap
