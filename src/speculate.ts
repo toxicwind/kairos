@@ -83,7 +83,7 @@ export function raceBin(): string {
   return (
     process.env.KAIROS_RACE_BIN ||
     process.env.DELEND_CODE_RACE ||
-    "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts"
+    "/home/toxic/pens/flux/products/hephaistos/plugins/code-race/src/index.ts"
   );
 }
 

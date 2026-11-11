@@ -1,5 +1,12 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeAll } from "bun:test";
+import { mkdirSync } from "node:fs";
 import { guard, redirectTargetMissing, hugeTreeScan, verdict } from "../src/guard.ts";
+
+// Fixture: "allows existing parent" requires /tmp/kappa/kairos-t/ok to exist.
+// Previously relied on leftover state from other runs — hermetic now.
+beforeAll(() => {
+  mkdirSync("/tmp/kappa/kairos-t/ok", { recursive: true });
+});
 
 afterEach(() => {
   delete process.env.KAIROS_DEBUG;
@@ -31,7 +38,7 @@ describe("redirect-into-nonexistent-dir guard", () => {
 
 describe("huge-tree scan routing", () => {
   test("diff/du/find over estate or pens gets routed (rewrite, not cancel)", () => {
-    expect(guard("diff -rq /home/toxic/estate /home/toxic/pens/estate")).toBe(0);
+    expect(guard("diff -rq /home/toxic/pens/estate /home/toxic/pens/estate")).toBe(0);
     expect(guard("du -sh /home/toxic/pens")).toBe(0);
   });
   test("small scoped finds are fine", () => {

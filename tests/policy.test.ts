@@ -114,7 +114,7 @@ describe("kairos shim canonical-path emission", () => {
     // init.ts embeds the runtime-expanded absolute path (not a runtime $HOME
     // expansion) — the shim literal carries the absolute pens path.
     expect(shim).toContain(
-      "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts",
+      "/home/toxic/pens/flux/products/hephaistos/plugins/code-race/src/index.ts",
     );
     expect(shim).not.toContain("$HOME/pens/barn/");
   });

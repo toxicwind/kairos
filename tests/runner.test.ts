@@ -40,7 +40,7 @@ describe("runSession", () => {
   test("MITM: | head returns the FULL upstream output (ls is not windowed)", async () => {
     useTmpSession();
     const r = await runSession(
-      ["ls", "/home/toxic/pens/ergasterion/products/kairos", "|", "head", "-1"],
+      ["ls", "/home/toxic/pens/flux/products/kairos", "|", "head", "-1"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
@@ -52,7 +52,7 @@ describe("runSession", () => {
   test("rewrites banned cat to ffs read invisibly (returns file content)", async () => {
     useTmpSession();
     const r = await runSession(
-      ["cat", "/home/toxic/pens/ergasterion/products/kairos/package.json"],
+      ["cat", "/home/toxic/pens/flux/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
@@ -177,7 +177,7 @@ describe("runSession", () => {
   test("MITM: head file returns the FULL file contents, not the first N lines", async () => {
     useTmpSession();
     const r = await runSession(
-      ["head", "-2", "/home/toxic/pens/ergasterion/products/kairos/package.json"],
+      ["head", "-2", "/home/toxic/pens/flux/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
@@ -190,7 +190,7 @@ describe("runSession", () => {
   test("MITM: wc file returns the FULL file contents, not the count", async () => {
     useTmpSession();
     const r = await runSession(
-      ["wc", "-l", "/home/toxic/pens/ergasterion/products/kairos/package.json"],
+      ["wc", "-l", "/home/toxic/pens/flux/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
@@ -201,7 +201,7 @@ describe("runSession", () => {
   test("MITM: tail file returns the FULL file contents, not the last N lines", async () => {
     useTmpSession();
     const r = await runSession(
-      ["tail", "-2", "/home/toxic/pens/ergasterion/products/kairos/package.json"],
+      ["tail", "-2", "/home/toxic/pens/flux/products/kairos/package.json"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");
@@ -225,7 +225,7 @@ describe("runSession", () => {
     const proc = Bun.spawn(
       ["bun", "src/cli.ts", "run", "cat", "package.json"],
       {
-        cwd: "/home/toxic/pens/ergasterion/products/kairos",
+        cwd: "/home/toxic/pens/flux/products/kairos",
         env: { ...process.env, KAIROS_STRICT: "1", KAIROS_DEBUG: "1" },
         stdout: "pipe",
         stderr: "pipe",
@@ -320,7 +320,7 @@ describe("runSession", () => {
   test("does not corrupt ls -l (real flag, not shell login)", async () => {
     useTmpSession();
     const r = await runSession(
-      ["ls", "-l", "/home/toxic/pens/ergasterion/products/kairos"],
+      ["ls", "-l", "/home/toxic/pens/flux/products/kairos"],
       { quiet: true },
     );
     expect(r.verdict).toBe("ok");

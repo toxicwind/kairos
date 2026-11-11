@@ -48,7 +48,7 @@ export function redirectTargetMissing(commandLine: string): string | null {
   return null;
 }
 /** Trees so large an inline recursive walk is a latency breach — must go through run-fast. */
-const HUGE_TREES = ["/home/toxic/pens/estate", "/home/toxic/pens"];
+const HUGE_TREES = ["/home/toxic/pens/estate", "/home/toxic/pens", "/home/toxic"];
 const TREE_WALKERS = /\b(diff|du|find|grep|rg|fd|ls|fclones)\b/;
 
 export function hugeTreeScan(commandLine: string): string | null {
