@@ -11,11 +11,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HOME = homedir();
-const KAIROS = join(HOME, "pens/ergasterion/products/kairos");
+const KAIROS = join(HOME, "pens/flux/products/kairos");
 const CLI = join(KAIROS, "src/cli.ts");
 const PLUGIN = join(
   HOME,
-  "pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts",
+  "pens/flux/products/hephaistos/plugins/code-race/src/index.ts",
 );
 
 const SESSION_DIR = join(

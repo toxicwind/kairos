@@ -40,15 +40,15 @@ export function emitBashShim(): string {
   *[[:space:]]sleep[[:space:]][0-9]*)
       _2s_urgent "blocking sleep" "readiness-check or background it — never sleep to wait"; return 1 ;;`;
 
-  return `# kairos bash glue — GENERATED from pens/ergasterion/products/kairos/src/policy.ts (bun SSOT).
-# Regenerate: bun run pens/ergasterion/products/kairos/src/cli.ts init > pens/ergasterion/products/kairos/shim.sh
+  return `# kairos bash glue — GENERATED from pens/flux/products/kairos/src/policy.ts (bun SSOT).
+# Regenerate: bun run pens/flux/products/kairos/src/cli.ts init > pens/flux/products/kairos/shim.sh
 _2S_GUARD_SRC="${__filename}"
 RF_BIN="$HOME/.local/bin/kairos"
 [ -x "$RF_BIN" ] || RF_BIN="$HOME/.local/bin/run-fast"
 [ -x "$RF_BIN" ] || return 0
 export RF_QUIET="\${RF_QUIET:-1}"
 export RF_DEADLINE="\${RF_DEADLINE:-4.0}"
-export DELEND_CODE_RACE="\${DELEND_CODE_RACE:-/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts}"
+export DELEND_CODE_RACE="\${DELEND_CODE_RACE:-/home/toxic/pens/flux/products/hephaistos/plugins/code-race/src/index.ts}"
 # rg agent-first defaults (dots file sat empty+unwired since 2026-10-19 —
 # kappa 2026-10-27: raw rg defaults caused megabyte line dumps on binaries
 # and inconsistent case handling across every agent shell)

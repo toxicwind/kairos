@@ -6,13 +6,13 @@ import { emitBashShim } from "../src/init.ts";
 
 const HOME = homedir();
 const STALE_CORRAL = "corral/delendai";
-// Canonical post-reorg home: ergasterion is a TOP-LEVEL pen (pens/ergasterion),
-// not a product under olympus. The code-race plugin lives there.
-const PLUGIN = join(HOME, "pens/ergasterion/products/hephaistos/plugins/code-race");
+// Canonical post-reorg home: flux is the live pen (pens/flux/products/kairos,
+// pens/flux/products/hephaistos). The code-race plugin lives there.
+const PLUGIN = join(HOME, "pens/flux/products/hephaistos/plugins/code-race");
 // The delend-code-race launcher lives in the ranch ops product (post-reorg
 // canonical home), symlinked into ~/.local/bin.
 const LAUNCHER = join(HOME, "pens/ranch/products/ops/delend-code-race");
-const MANIFEST = join(HOME, "pens/estate/products/estate-ops/bin/manifest.yaml");
+const MANIFEST = join(HOME, "pens/products/estate-ops/bin/manifest.yaml");
 // The estate-ops dir also resolves via the ~/.local/bin symlink (bin-verify).
 const BIN_LAUNCHER = join(HOME, ".local/bin/delend-code-race");
 
@@ -46,7 +46,7 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
 
   test("kairos runner resolves DELEND_CODE_RACE to the hephaistos plugin entry", () => {
     const runner = read(
-      join(HOME, "pens/ergasterion/products/kairos/src/runner.ts"),
+      join(HOME, "pens/flux/products/kairos/src/runner.ts"),
     );
     expect(runner).toContain(PLUGIN + "/src/index.ts");
     expect(runner).not.toContain(STALE_CORRAL);
@@ -87,8 +87,8 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     // and the manifest. Nothing outside them is reachable at runtime.
     const surface = [
       LAUNCHER,
-      join(HOME, "pens/ergasterion/products/kairos/src/runner.ts"),
-      join(HOME, "pens/ergasterion/products/kairos/src/init.ts"),
+      join(HOME, "pens/flux/products/kairos/src/runner.ts"),
+      join(HOME, "pens/flux/products/kairos/src/init.ts"),
       MANIFEST,
     ];
     for (const p of surface) {
@@ -113,7 +113,7 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     expect(shim).toContain("$HOME/.local/bin/kairos");
     expect(shim).toContain("$HOME/.local/bin/run-fast");
     expect(shim).toContain(
-      "/home/toxic/pens/ergasterion/products/hephaistos/plugins/code-race/src/index.ts",
+      "/home/toxic/pens/flux/products/hephaistos/plugins/code-race/src/index.ts",
     );
     expect(shim).not.toContain("$HOME/pens/barn/");
     expect(shim).not.toContain(STALE_CORRAL);
@@ -130,7 +130,7 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
       "cat",
       "package.json",
     ], {
-      cwd: join(HOME, "pens/ergasterion/products/kairos"),
+      cwd: join(HOME, "pens/flux/products/kairos"),
       stdout: "pipe",
       stderr: "pipe",
     });

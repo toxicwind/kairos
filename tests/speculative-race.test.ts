@@ -8,7 +8,7 @@ import { join } from "node:path";
 // ledger) and is written BEFORE the implementation exists.
 
 const HOME = homedir();
-const KAIROS = join(HOME, "pens/ergasterion/products/kairos");
+const KAIROS = join(HOME, "pens/flux/products/kairos");
 const CLI = join(KAIROS, "src/cli.ts");
 
 // Isolated session dir per run so tests never touch the live ~/.run-fast store.
