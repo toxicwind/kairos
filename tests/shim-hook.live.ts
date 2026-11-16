@@ -15,8 +15,8 @@ describe("kairos run-fast hook is LIVE (anomaly #57 regression)", () => {
     expect(existsSync(RF_BIN)).toBe(true);
     const real = realpathSync(RF_BIN);
     expect(existsSync(real)).toBe(true);
-    // Must NOT point at a removed estate-ops path.
-    expect(real).not.toContain("pens/estate/products/estate-ops");
+    // Must NOT point at a removed Pens-ops path.
+    expect(real).not.toContain("pens/Pens/products/Pens-ops");
   });
 
   test("~/.local/bin/kairos resolves to the live ops shim", () => {
@@ -30,10 +30,10 @@ describe("kairos run-fast hook is LIVE (anomaly #57 regression)", () => {
     expect(src).not.toContain("pens/ranch/kairos");
   });
 
-  test("emitted shim resolves RF_BIN via ~/.local/bin/kairos (not a dead estate-ops path)", () => {
+  test("emitted shim resolves RF_BIN via ~/.local/bin/kairos (not a dead Pens-ops path)", () => {
     const shim = emitBashShim();
     expect(shim).toContain("$HOME/.local/bin/kairos");
-    expect(shim).not.toContain("pens/estate/products/estate-ops");
+    expect(shim).not.toContain("pens/Pens/products/Pens-ops");
   });
 
   test("sourcing the shim in an agent shell hooks git/bun and routes via kairos", async () => {

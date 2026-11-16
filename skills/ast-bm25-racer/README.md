@@ -24,17 +24,17 @@ Developers working on large codebases who need fast, accurate code search with l
 ## Quick Start
 ```bash
 # Basic search
-python3 ast_bm25_racer.py --root /home/toxic/estate --query "gate retire agent-browser" --top-k 10
+python3 ast_bm25_racer.py --root /home/toxic/pens/Pens --query "gate retire agent-browser" --top-k 10
 
 # Scoped search with racing
-python3 ast_bm25_racer.py --root /home/toxic/pens/estate/projects/yote --query "funnel map serve" --top-k 8 --race
+python3 ast_bm25_racer.py --root /home/toxic/pens/Pens/projects/yote --query "funnel map serve" --top-k 8 --race
 
 # Full repo indexing (batch job)
-python3 ast_bm25_racer.py --root /home/toxic/estate --top-k 5
+python3 ast_bm25_racer.py --root /home/toxic/pens/Pens --top-k 5
 ```
 
 ## Configuration
-The tool operates with hardcoded parameters optimized for the sovereign estate:
+The tool operates with hardcoded parameters optimized for the sovereign Pens:
 - BM25: k1=1.2, b=0.75
 - Hybrid scoring: sym_match, async_intent, and centrality weights
 - Race configuration: 5 warmups, 50 measured runs, GC-isolated timing
@@ -43,7 +43,7 @@ The tool operates with hardcoded parameters optimized for the sovereign estate:
 This is a local-heavy edition skill with no external dependencies beyond Python stdlib. Contributions should maintain the local-first, Dropbox-free philosophy.
 
 ## License
-Internal tool - refer to sovereign estate licensing
+Internal tool - refer to sovereign Pens licensing
 
 ## Security
 No network calls, no cloud mounts, all processing stays local to the executing machine.

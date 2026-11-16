@@ -79,7 +79,7 @@ describe("speculative race (live)", () => {
     "LIVE verify gate: ffs-class rewrite of a real find command verifies as faster",
     async () => {
       // The REAL domain: find/grep → ffs-class rewrites. Baseline = a real
-      // `find` over the kairos tree; candidate = the estate's indexed equivalent.
+      // `find` over the kairos tree; candidate = the Pens's indexed equivalent.
       const { verifyCandidate } = await import("../src/speculate.ts");
       const baseline = async () => {
         const p = Bun.spawn(

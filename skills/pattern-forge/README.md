@@ -10,7 +10,7 @@ Retrieve, race, and borrow. One tool for finding code in our own tree (AST-BM25 
 
 | Leg | Absorbed from | What it does |
 |---|---|---|
-| `retrieve` | `ast-bm25-racer`, `ast_indexer.py` | Hybrid AST + BM25 over the estate |
+| `retrieve` | `ast-bm25-racer`, `ast_indexer.py` | Hybrid AST + BM25 over the Pens |
 | `race` | `hft-latency/bin/race.py` | Concurrent, hedged, first-valid-wins |
 | `bench` | `code_racer.py` (×2 copies) | Nanosecond candidate leaderboard |
 | `borrow` | `emergent-enrich/bin/route.py`, `race-borrow.ts` | 7 sources in parallel, ranked |
@@ -20,7 +20,7 @@ Retrieve, race, and borrow. One tool for finding code in our own tree (AST-BM25 
 
 ### Feature bullets
 
-- **retrieve** — Hybrid AST + BM25 over the estate; 26× faster to build, 127× faster per query than Python original; prunes at directory level, never silently truncates
+- **retrieve** — Hybrid AST + BM25 over the Pens; 26× faster to build, 127× faster per query than Python original; prunes at directory level, never silently truncates
 - **race** — First valid-wins racing with hedging; valid (output matches `match` AND exit 0), not merely finished; hedging launches backups at `--hedge-ms` if nobody has won; ledger tracks historical winners; no orphans — losers aborted on resolution
 - **bench** — Nanosecond comparison of candidate implementations; throws have no samples, rank last; median/p95/mean leaderboard
 - **borrow** — Seven sources in parallel (arXiv, OpenAlex, Semantic Scholar, DBLP, HuggingFace papers, GitHub, exa); wall time is slowest leg, not sum; cost/audit logged per source
@@ -47,7 +47,7 @@ The installer links `<prefix>/forge` at `bin/forge.ts` (the package.json
 
 ```bash
 # Retrieve code you half-remember
-forge retrieve --root /home/toxic/pens/estate/ranch --query "stream broker subscribe topic route" --top 5
+forge retrieve --root /home/toxic/pens/Pens/ranch --query "stream broker subscribe topic route" --top 5
 
 # Race implementations, first valid wins
 forge race --strategies '{"strategies":[{"name":"primary","cmd":["bun","run","a.ts"],"match":"^OK"},{"name":"backup","cmd":["bun","run","b.ts"],"match":"^OK"}]} --hedge-ms 300 --lead
@@ -71,7 +71,7 @@ Seven legs sharing one doctrine: many readers, one writer; the first valid answe
 
 ### Dev / contributing
 
-- Clone the estate repo; ensure Bun is installed (`bun install` or `bun i`)
+- Clone the Pens repo; ensure Bun is installed (`bun install` or `bun i`)
 - All code is pure TypeScript/JavaScript, zero npm dependencies
 - Legs are in `src/`; each leg has its own `forge-*.ts` file
 - To add a new leg: implement the CLI command, the racing logic, and the ledger append

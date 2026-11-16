@@ -37,8 +37,8 @@ describe("redirect-into-nonexistent-dir guard", () => {
 });
 
 describe("huge-tree scan routing", () => {
-  test("diff/du/find over estate or pens gets routed (rewrite, not cancel)", () => {
-    expect(guard("diff -rq /home/toxic/pens/estate /home/toxic/pens/estate")).toBe(0);
+  test("diff/du/find over Pens or pens gets routed (rewrite, not cancel)", () => {
+    expect(guard("diff -rq /home/toxic/pens/Pens /home/toxic/pens/Pens")).toBe(0);
     expect(guard("du -sh /home/toxic/pens")).toBe(0);
   });
   test("small scoped finds are fine", () => {

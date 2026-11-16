@@ -26,7 +26,7 @@ hephaistos with the id + the command shape. The original keeps running —
 it is never killed by the speculation.
 
 **Tier 2 — speculation (10–90s).** Hephaistos runs three lanes in parallel:
-1. **code race** — `ffs`/blackbird the estate for faster implementations of
+1. **code race** — `ffs`/blackbird the Pens for faster implementations of
    the command's shape (same I/O contract, faster path).
 2. **pattern borrow** — azurite code-patterns for proven faster patterns.
 3. **paper finder** — arxiv/alphaxiv for technique papers (the table above

@@ -27,7 +27,7 @@ Auto-backfilled from git history 2026-11-02 (real commits only).
 
 ## 2026-10-24
 - ci: add GHA workflow (pure Bun, ubuntu-hosted, compilable) (ad2810b)
-- fix(kairos): point shim runner at canonical pens/barn/estate-ops paths (TDD) (42b5e0e)
+- fix(kairos): point shim runner at canonical pens/barn/Pens-ops paths (TDD) (42b5e0e)
 
 ## 2026-10-22
 - feat(kairos): auto-follow detached sessions — streaming delivery to the agent (4b590d5)

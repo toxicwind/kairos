@@ -105,7 +105,7 @@ describe("policy", () => {
 describe("kairos shim canonical-path emission", () => {
   const shim = emitBashShim();
 
-  test("RF_BIN resolves via ~/.local/bin (estate bin-contract), not barn/estate-ops", () => {
+  test("RF_BIN resolves via ~/.local/bin (Pens bin-contract), not barn/Pens-ops", () => {
     expect(shim).toContain("$HOME/.local/bin/run-fast");
     expect(shim).not.toContain("$HOME/pens/barn/");
   });
@@ -119,8 +119,8 @@ describe("kairos shim canonical-path emission", () => {
     expect(shim).not.toContain("$HOME/pens/barn/");
   });
 
-  test("no stale estate/ranch mirror path remains in the emitted shim", () => {
-    expect(shim).not.toContain("estate/ranch");
+  test("no stale Pens/ranch mirror path remains in the emitted shim", () => {
+    expect(shim).not.toContain("Pens/ranch");
   });
 
   test("shim head/tail/wc are FULLY invisible — no wrappers, no bans, no ffs routing", () => {
@@ -138,7 +138,7 @@ describe("kairos shim canonical-path emission", () => {
 
   test("shim preserves the full guard family for agent-shell snapshots", () => {
     // tau's shell-snapshot strips `_2s_*` and `head|tail` as common tools; the
-    // estate shim re-adds the FULL family so bun()/git() and head/tail wrappers
+    // Pens shim re-adds the FULL family so bun()/git() and head/tail wrappers
     // are never orphaned (command-not-found) in agent tool shells.
     expect(shim).toMatch(/_2s_wrap/);
     expect(shim).toMatch(/_2s_guard/);

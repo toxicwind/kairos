@@ -12,8 +12,8 @@ const PLUGIN = join(HOME, "pens/flux/products/hephaistos/plugins/code-race");
 // The delend-code-race launcher lives in the ranch ops product (post-reorg
 // canonical home), symlinked into ~/.local/bin.
 const LAUNCHER = join(HOME, "pens/ranch/products/ops/delend-code-race");
-const MANIFEST = join(HOME, "pens/products/estate-ops/bin/manifest.yaml");
-// The estate-ops dir also resolves via the ~/.local/bin symlink (bin-verify).
+const MANIFEST = join(HOME, "pens/products/Pens-ops/bin/manifest.yaml");
+// The Pens-ops dir also resolves via the ~/.local/bin symlink (bin-verify).
 const BIN_LAUNCHER = join(HOME, ".local/bin/delend-code-race");
 
 const read = (p: string) => {
@@ -67,10 +67,10 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     }
   });
 
-  test("manifest pins the delend-code-race link at estate-ops + plugin entrypoints", () => {
+  test("manifest pins the delend-code-race link at Pens-ops + plugin entrypoints", () => {
     const m = read(MANIFEST);
     // Manifest emits its own name form (PATH-style) — assert the names exist and
-    // the targets point at estate-ops launcher + plugin entries, never the corral.
+    // the targets point at Pens-ops launcher + plugin entries, never the corral.
     expect(m).toContain('name: "delend-code-race"');
     expect(m).toContain(`target: "${LAUNCHER}"`);
     expect(m).toContain('name: "delend-code-race-line"');
@@ -82,7 +82,7 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
     expect(m).not.toContain(STALE_CORRAL);
   });
 
-  test("no live tooling in the delend chain references a deleted path (barn/estate-ops dup / corral)", () => {
+  test("no live tooling in the delend chain references a deleted path (barn/Pens-ops dup / corral)", () => {
     // Assert over the deterministic chain surface: launcher, plugin, kairos runner,
     // and the manifest. Nothing outside them is reachable at runtime.
     const surface = [
@@ -97,12 +97,12 @@ describe("delend-code-race chain survives the delendai→hephaistos reorg", () =
       expect(text, `no stale corral/delendai in ${p}`).not.toContain(
         "corral/delendai",
       );
-      // The retired barn/estate-ops delend-code-race sibling must not be referenced
-      // as a target (estate/products/estate-ops is canonical).
+      // The retired barn/Pens-ops delend-code-race sibling must not be referenced
+      // as a target (Pens/products/Pens-ops is canonical).
       expect(
         text,
-        `no barn/estate-ops delend-code-race target in ${p}`,
-      ).not.toContain("pens/barn/estate-ops/delend-code-race");
+        `no barn/Pens-ops delend-code-race target in ${p}`,
+      ).not.toContain("pens/barn/Pens-ops/delend-code-race");
     }
   });
 

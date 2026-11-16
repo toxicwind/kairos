@@ -258,7 +258,7 @@ async function runRealTest(actionId: string): Promise<number> {
 
 function cmdPaths(_args: Args): number {
   const rows: [string, string][] = [
-    ["ESTATE", P.ESTATE], ["RANCH", P.RANCH], ["VENDORED", P.VENDORED], ["VAR", P.VAR],
+    ["Pens", P.Pens], ["RANCH", P.RANCH], ["VENDORED", P.VENDORED], ["VAR", P.VAR],
     ["MANOR", P.MANOR], ["SKILLS_HOME", P.SKILLS_HOME], ["TAU_DIR", P.TAU_DIR],
     ["PORTS_ENV", P.PORTS_ENV], ["KNOWLEDGEBASE", P.KNOWLEDGEBASE],
   ];
@@ -266,11 +266,11 @@ function cmdPaths(_args: Args): number {
   const lines = ["=== resolved paths (env override -> skill-marker discovery -> candidate probe -> honest miss) ==="];
   for (const [key, value] of rows) {
     const rendered = value === ""
-      ? "(unset — no estate checkout on this host)"
+      ? "(unset — no Pens checkout on this host)"
       : `${value}  ${existsSync(value) ? "" : "(MISSING)"}`;
     lines.push(`${key.padEnd(width)}  ${rendered}`);
   }
-  lines.push("--- estate candidate probe ---");
+  lines.push("--- Pens candidate probe ---");
   for (const r of P.probeEstate()) {
     lines.push(`  ${r.candidate}  ${r.exists ? "exists" : "missing"}${r.selected ? "  [selected]" : ""}`);
   }
@@ -305,13 +305,13 @@ async function cmdDoctor(args: Args): Promise<number> {
     const searched = await mcts.search(async () => [{ actionId: "a", patch: "p" }], async () => 1);
     checks.push({ name: "mcts", ok: searched.bestPatch === "p", detail: `${searched.iterations} iters best=${searched.bestStateId}` });
 
-    const estateOk = P.ESTATE === "" || existsSync(P.ESTATE);
+    const estateOk = P.Pens === "" || existsSync(P.Pens);
     checks.push({
       name: "paths",
       ok: estateOk,
-      detail: P.ESTATE === ""
-        ? "no estate checkout on this host — resolver reported the miss honestly (no blessed stale dir)"
-        : `ESTATE=${P.ESTATE} (probed: ${P.probeEstate().map((r) => `${r.candidate}=${r.exists ? "exists" : "missing"}${r.selected ? " [selected]" : ""}`).join(", ")})`,
+      detail: P.Pens === ""
+        ? "no Pens checkout on this host — resolver reported the miss honestly (no blessed stale dir)"
+        : `Pens=${P.Pens} (probed: ${P.probeEstate().map((r) => `${r.candidate}=${r.exists ? "exists" : "missing"}${r.selected ? " [selected]" : ""}`).join(", ")})`,
     });
 
     const sgBin = resolveAstGrep();

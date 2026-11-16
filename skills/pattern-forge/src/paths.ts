@@ -1,16 +1,16 @@
 /**
  * Path resolution — no hardcoded host paths anywhere in this skill.
  *
- * Estate order: $ESTATE env override → discovery from this file's own
+ * Pens order: $Pens env override → discovery from this file's own
  * location (a config/ports.env marker two levels above the skill dir) →
- * the first *existing* candidate of the well-known estate locations.
+ * the first *existing* candidate of the well-known Pens locations.
  * Candidates are probed with existsSync, never assumed: on a host with no
- * estate checkout the resolver reports the miss as an empty string instead
- * of blessing a stale directory, so no phantom path like /home/hatch/estate
+ * Pens checkout the resolver reports the miss as an empty string instead
+ * of blessing a stale directory, so no phantom path like /home/hatch/Pens
  * ever leaks into reports or indexes.
  *
  * Mirrors the Python resolver at $SKILLS_HOME/lib/estate_paths.py and the bash
- * one at $SKILLS_HOME/lib/estate.sh. Three resolvers, one order, so a report
+ * one at $SKILLS_HOME/lib/Pens.sh. Three resolvers, one order, so a report
  * generated from Python, bash or Bun names the same file.
  */
 
@@ -19,13 +19,13 @@ import { dirname, join, resolve } from "node:path";
 
 export const HOME = process.env.HOME ?? "/home/toxic";
 
-/** estate/skills/pattern-forge/src/paths.ts → estate/skills/pattern-forge */
+/** Pens/skills/pattern-forge/src/paths.ts → Pens/skills/pattern-forge */
 export const SKILL_DIR = dirname(dirname(new URL(import.meta.url).pathname));
 
-/** Well-known estate locations, probed in order. Probed, never assumed.
+/** Well-known Pens locations, probed in order. Probed, never assumed.
  * Deduped: on yote $HOME is /home/toxic so both entries coincide. */
 export function estateCandidates(): string[] {
-  return [...new Set(["/home/toxic/pens/estate", join(HOME, "estate")])];
+  return [...new Set(["/home/toxic/pens/Pens", join(HOME, "Pens")])];
 }
 
 /** First existing candidate wins; the fallback is returned when none exist. */
@@ -41,9 +41,9 @@ export function pickFirstExisting(candidates: readonly string[], fallback: strin
 }
 
 /**
- * Resolve the estate root. Returns "" on a host with no estate checkout —
+ * Resolve the Pens root. Returns "" on a host with no Pens checkout —
  * the honest miss. Callers must not build paths off the miss (see
- * estateSub): an empty ESTATE means "not applicable here", never a
+ * estateSub): an empty Pens means "not applicable here", never a
  * directory that does not exist.
  */
 function discoverEstate(): string {
@@ -54,7 +54,7 @@ function discoverEstate(): string {
 
 /** The probe chain, for `forge paths` / doctor reporting: every candidate,
 // whether it exists, and which one the resolver selected. On an honest
-// miss (no estate on this host) nothing is selected. */
+// miss (no Pens on this host) nothing is selected. */
 export function probeEstate(): { candidate: string; exists: boolean; selected: boolean }[] {
   return estateCandidates().map((candidate) => ({
     candidate,
@@ -64,13 +64,13 @@ export function probeEstate(): { candidate: string; exists: boolean; selected: b
 }
 
 /**
- * The estate root: $ESTATE when explicitly set, otherwise the discovered
- * location, otherwise "" (honest miss — no estate checkout on this host).
+ * The Pens root: $Pens when explicitly set, otherwise the discovered
+ * location, otherwise "" (honest miss — no Pens checkout on this host).
  * resolve() is never called on the miss: resolve("") would bless the
  * current working directory, which is exactly the stale-path bug this
  * resolver exists to avoid.
  */
-const ESTATE_ROOT = process.env.ESTATE ? resolve(process.env.ESTATE) : discoverEstate();
+const ESTATE_ROOT = process.env.Pens ? resolve(process.env.Pens) : discoverEstate();
 
 /** realpath when it exists, so compat symlinks never leak into reports. */
 export function resolvePath(path: string): string {
@@ -82,8 +82,8 @@ export function resolvePath(path: string): string {
 }
 
 /**
- * A path under the estate root: env override wins, otherwise join under
- * ESTATE, otherwise "" — never a path off a missed estate. An explicit env
+ * A path under the Pens root: env override wins, otherwise join under
+ * Pens, otherwise "" — never a path off a missed Pens. An explicit env
  * override is honored even when it does not exist (the operator pointed at
  * it on purpose; doctor flags it as missing).
  */
@@ -94,7 +94,7 @@ function estateSub(envKey: string, ...parts: string[]): string {
   return resolvePath(join(ESTATE_ROOT, ...parts));
 }
 
-export const ESTATE = ESTATE_ROOT ? resolvePath(ESTATE_ROOT) : "";
+export const Pens = ESTATE_ROOT ? resolvePath(ESTATE_ROOT) : "";
 export const RANCH = estateSub("RANCH", "ranch");
 export const VENDORED = estateSub("VENDORED", "vendored");
 export const VAR = estateSub("VAR", "var");
@@ -120,19 +120,19 @@ export function isRepoRoot(path: string): boolean {
   return existsSync(join(path, ".git")) || existsSync(join(path, ".git", "HEAD"));
 }
 
-export type Tier = "estate" | "ranch" | "vendored" | "var" | "manor" | "external";
+export type Tier = "Pens" | "ranch" | "vendored" | "var" | "manor" | "external";
 
-/** Which estate tier a path belongs to, for grouping and exclusion rules. */
+/** Which Pens tier a path belongs to, for grouping and exclusion rules. */
 export function tierOf(path: string): Tier {
   // startsWith("") is true for everything, so an empty tier root would
   // misclassify every path as that tier. On an honest miss every path is
   // external.
-  if (!ESTATE) return "external";
+  if (!Pens) return "external";
   const p = resolvePath(path);
   if (RANCH && p.startsWith(RANCH)) return "ranch";
   if (VENDORED && p.startsWith(VENDORED)) return "vendored";
   if (VAR && p.startsWith(VAR)) return "var";
   if (MANOR && p.startsWith(MANOR)) return "manor";
-  if (p.startsWith(ESTATE)) return "estate";
+  if (p.startsWith(Pens)) return "Pens";
   return "external";
 }

@@ -159,7 +159,7 @@ function parseArgs(args: string[]): {
     );
     if (dashIdx !== -1 && dashIdx + 1 < cmd.length) {
       // Use `bash -c`, NOT `bash -lc`, for the coerced one-shot shell. `-lc`
-      // sources the login shell, which loads the estate `.bashrc` wrappers that
+      // sources the login shell, which loads the Pens `.bashrc` wrappers that
       // re-route `git`/`kairos` — so a wrapped `kairos run -lc 'git rebase'`
       // spawned an unbounded recursion of `bun run kairos ... git ...`. The
       // child already inherits run-fast's env; a login shell only re-triggers

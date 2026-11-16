@@ -9,11 +9,11 @@ order. They are different tools with different behavior:
 
 | Path                              | What it is                                   | Deadline                             | Behavior                                                                                                                     |
 | --------------------------------- | -------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `/home/toxic/pens/estate/bin/run-fast` | bash shim → `bun run $KAIROS_DIR/src/cli.ts` | `RF_DEADLINE` env (shim default 2.0) | kairos TS: pipeline splitter, truncation rewrite (persist-full + slice), per-command bumps, `[kairos BREACH — URGENT]` scold |
+| `/home/toxic/pens/Pens/bin/run-fast` | bash shim → `bun run $KAIROS_DIR/src/cli.ts` | `RF_DEADLINE` env (shim default 2.0) | kairos TS: pipeline splitter, truncation rewrite (persist-full + slice), per-command bumps, `[kairos BREACH — URGENT]` scold |
 | `/home/toxic/bin/run-fast`        | static Python (author mandate 2026-10-13)    | `--deadline` flag, default 2.0       | kills the child process group, `[run-fast] BREACH`, exit 75                                                                  |
 
 `/usr/local/bin/run-fast` is a symlink → `/home/toxic/bin/run-fast` (the
-Python one). `type -a run-fast` shows `estate/bin/run-fast` first for an
+Python one). `type -a run-fast` shows `Pens/bin/run-fast` first for an
 interactive shell, but the harness / other callers may resolve either.
 
 ## kairos (`ranch/kairos`, formerly `ranch/two-sec`)
@@ -68,7 +68,7 @@ hardcodes `HARD_DEADLINE.toFixed(1)` ("2.0s"); that is cosmetic.
 
 1. Put a policy somewhere every cwd walks up to — `/home/toxic/.two-sec/policy.json`
    is the broad net for anything under `/home/toxic` (works from `/home/toxic/tmp`).
-   `estate/.two-sec/policy.json` also works for estate-rooted cwds but NOT from
+   `Pens/.two-sec/policy.json` also works for Pens-rooted cwds but NOT from
    `/home/toxic/tmp` (findUp only walks parents, not sideways).
 2. Raise the deadline + drop the friction bans:
 

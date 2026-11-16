@@ -86,7 +86,7 @@ ledger = true
 
 [[rule]]
 id = "huge-tree-walk"
-pattern = '\b(diff|du|find|grep|rg|fd|ls|fclones)\b[^|]*&(gt;)?\s*/home/toxic/(estate|pens)'
+pattern = '\b(diff|du|find|grep|rg|fd|ls|fclones)\b[^|]*&(gt;)?\s*/home/toxic/(Pens|pens)'
 timeout_ms = 120000             # big trees get their own generous window
 cancel = false
 action = "race"

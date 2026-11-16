@@ -2,7 +2,7 @@
  * project-policy.ts — per-project policy layer (ToolGuardian-inspired:
  * declarative policy-as-data, not hardcoded patterns).
  *
- * Files (walked up from cwd, estate-style):
+ * Files (walked up from cwd, Pens-style):
  *   .two-sec/policy.json — { deadlineS?, extraBans?: [{test,action,reason,fix}],
  *                            disableBans?: [reason substrings] }
  *   .two-sec/ignore      — one comment-ish line per allowed pattern (FP-Predictor:

@@ -11,7 +11,7 @@ import type { Strategy } from "../src/concurrent";
 import { CodeRacer } from "../src/code-racer";
 import { resolveExaKey } from "../src/borrow";
 import { isExpectedDegrade, resolveGithubToken, safeCall } from "../src/providers";
-import { ESTATE, pickFirstExisting, probeEstate, tierOf } from "../src/paths";
+import { Pens, pickFirstExisting, probeEstate, tierOf } from "../src/paths";
 import { existsSync } from "node:fs";
 import { audit, resolveAstGrep } from "../src/audit";
 import { extractTracebackFrames } from "../src/subgraph";
@@ -306,18 +306,18 @@ describe("paths", () => {
     expect(pickFirstExisting([join(root, "nope-a"), join(root, "nope-b")], fallback)).toBe(fallback);
   });
 
-  test("ESTATE is either empty (honest miss) or an existing directory — never a blessed stale dir", () => {
-    expect(ESTATE === "" || existsSync(ESTATE)).toBe(true);
+  test("Pens is either empty (honest miss) or an existing directory — never a blessed stale dir", () => {
+    expect(Pens === "" || existsSync(Pens)).toBe(true);
   });
 
   test("probeEstate selects nothing on an honest miss", () => {
-    if (ESTATE === "") {
+    if (Pens === "") {
       expect(probeEstate().every((r) => !r.selected)).toBe(true);
     }
   });
 
   test("tierOf classifies everything external on an honest miss", () => {
-    if (ESTATE === "") {
+    if (Pens === "") {
       expect(tierOf("/some/path/file.ts")).toBe("external");
     }
   });

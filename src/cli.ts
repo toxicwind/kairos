@@ -52,7 +52,7 @@ const KAIROS_VERBS = new Set([
 ]);
 
 /**
- * Normalize a single verb dispatch. The estate `bin/kairos` symlink routes
+ * Normalize a single verb dispatch. The Pens `bin/kairos` symlink routes
  * through the `run-fast` bash shim, which ALWAYS prepends `run` as the first
  * runner arg. That means `kairos route bun test` arrives here as cmd="run",
  * rest=["route","bun","test"] — and would otherwise spawn the system

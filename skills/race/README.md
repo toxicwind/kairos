@@ -1,7 +1,7 @@
 # race {badges}
 
 <!-- badges: start -->
-<a href="https://github.com/toxicwind/estate">
+<a href="https://github.com/toxicwind/Pens">
   <img src="https://img.shields.io/badge/github-toxicwind/sovereign--projects-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub repo">
 </a>
 <!-- badges: end -->

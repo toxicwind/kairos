@@ -93,7 +93,7 @@ A breach notice is not a nag — it names the exact commands to race faster:
 ## Install
 
 ```bash
-bash -c 'echo "export BASH_ENV=$HOME/estate/ranch/kairos/shim.sh" >> ~/.bash_profile'
+bash -c 'echo "export BASH_ENV=$HOME/Pens/ranch/kairos/shim.sh" >> ~/.bash_profile'
 bun run src/cli.ts init > shim.sh   # regenerate after policy edits
 bun test                             # policy tests
 ```

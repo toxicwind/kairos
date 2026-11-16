@@ -1,10 +1,10 @@
 /**
- * Repository indexing — the crawl that makes retrieval usable at estate scale.
+ * Repository indexing — the crawl that makes retrieval usable at Pens scale.
  *
  * The Python original walked with `Path.rglob("*.ts")` and then filtered out
  * `node_modules`, `.git`, `.venv`, `dist`, `build`. That filter ran AFTER
  * traversal, so it saved tokenization but not I/O: pointing the racer at the
- * estate root spent 65 seconds crawling 400GB of build artifacts before I
+ * Pens root spent 65 seconds crawling 400GB of build artifacts before I
  * killed it. Here the directory names are pruned at the directory level, so a
  * pruned subtree is never entered and its inodes are never stat'd.
  *
@@ -91,7 +91,7 @@ function extOf(name: string): string {
 
 /**
  * Build the index. Files are read concurrently; Bun's I/O is the bottleneck
- * at estate scale, so reads are issued in waves rather than awaited one by one.
+ * at Pens scale, so reads are issued in waves rather than awaited one by one.
  */
 export async function buildIndex(root: string, opts: ScanOptions = {}): Promise<{ index: Bm25Index; stats: BuildStats }> {
   const started = performance.now();

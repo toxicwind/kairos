@@ -5,12 +5,12 @@ is yote-side (packaging / move / PATH install) once the bridge stabilizes.
 
 ## What was found
 
-The stale `/home/hatch/estate` hardcode the prior `forge doctor` failure
+The stale `/home/hatch/Pens` hardcode the prior `forge doctor` failure
 reported was already repaired in `src/paths.ts` before this pass (a prior
 worker left it behind, or the fix landed in-tree): `forge doctor` passed
 7/7 and the full test suite 32/32 on first run. This pass:
 
-1. Hardened the last literal host path outside the estate candidate probe
+1. Hardened the last literal host path outside the Pens candidate probe
    list: `src/audit.ts` `resolveAstGrep()` still had the literal
    `"/home/toxic/.local/share/mise/shims/ast-grep"`. Now
    `join(homedir(), ".local", "share", "mise", "shims", "ast-grep")` — the
@@ -26,11 +26,11 @@ worker left it behind, or the fix landed in-tree): `forge doctor` passed
 
 Pre-existing (not touched by this pass, already correct):
 
-- `src/paths.ts` — dynamic estate resolution, no `/home/hatch` hardcode in
-  code. Chain: `$ESTATE` env override → discovery from the skill's own
+- `src/paths.ts` — dynamic Pens resolution, no `/home/hatch` hardcode in
+  code. Chain: `$Pens` env override → discovery from the skill's own
   location (`config/ports.env` marker two levels above the skill dir) →
-  probe `/home/toxic/estate` and `$HOME/estate` with `existsSync` →
-  honest empty-string miss (never blesses a stale dir). `/home/toxic/estate`
+  probe `/home/toxic/pens/Pens` and `$HOME/Pens` with `existsSync` →
+  honest empty-string miss (never blesses a stale dir). `/home/toxic/pens/Pens`
   appears only as a *probe candidate* (probed, never assumed) and once in a
   comment naming the anti-pattern.
 
@@ -44,12 +44,12 @@ PASS  retrieve          16 indexed, top=src/concurrent.ts
 PASS  bench             winner=noop rows=2
 PASS  subgraph parse    frames=1 pyFiles=16
 PASS  mcts              7814-8765 iters best=a
-PASS  paths             no estate checkout on this host — resolver reported the miss honestly
+PASS  paths             no Pens checkout on this host — resolver reported the miss honestly
 PASS  audit (ast-grep)  /home/hatch/.local/bin/ast-grep
 ```
 
 `bun bin/forge.ts paths` reports the honest miss on cell (both candidates
-missing) and `ESTATE=/tmp` override is honored.
+missing) and `Pens=/tmp` override is honored.
 
 Test suite: `bun test tests/pattern-forge.test.ts` → **32 pass / 0 fail**.
 
@@ -89,15 +89,15 @@ Exa key — code expects it via `src/borrow.ts` `resolveExaKey(explicit)`:
 ## AST-audit verdict (dogfooded `forge audit` against the skill itself)
 
 Claim: "path resolution probes candidates and honors the env override; no
-hardcoded /home/hatch estate path in code."
+hardcoded /home/hatch Pens path in code."
 
 - `discoverEstate calls pickFirstExisting` → **VERIFIED**
   (`src/paths.ts:52` `return pickFirstExisting(estateCandidates(), "");`)
 - `pickFirstExisting calls existsSync` → **VERIFIED**
   (`src/paths.ts:35` `if (existsSync(c)) return c;`)
-- literal string `"/home/hatch/estate"` in `src/` → **NOT-FOUND**
+- literal string `"/home/hatch/Pens"` in `src/` → **NOT-FOUND**
   (0 AST hits; the one textual mention is a comment naming the anti-pattern)
-- `process.env.ESTATE` override read → **VERIFIED** (`src/paths.ts:73`)
+- `process.env.Pens` override read → **VERIFIED** (`src/paths.ts:73`)
 
 **Verdict: VERIFIED (high confidence).** The resolver is probe-and-override;
 nothing in code assumes a host path.
@@ -110,7 +110,7 @@ Blockers right now: yote exec-bridge is DOWN (502) and GitHub creds are dead.
    (memory: WS lane down, HTTPS fallback works).
 2. Trace ownership/move history on yote (ffs + git log under /home/toxic —
    check whether pattern-forge already has a repo home, e.g. under
-   /home/toxic/pens/estate/tools/, and whether this cell copy is ahead or behind
+   /home/toxic/pens/Pens/tools/, and whether this cell copy is ahead or behind
    the yote copy; two prior workers died to restart drains, so diff the trees
    before moving anything — never lose code in the merge).
 3. Merge these changes (only `src/audit.ts` + this `HANDOFF.md`) into the
@@ -121,7 +121,7 @@ Blockers right now: yote exec-bridge is DOWN (502) and GitHub creds are dead.
    onto PATH; both need `bun`. Verify fresh-shell invocation with NO shim
    (temp shim was /home/hatch/workspace/bin/forge — do not depend on it).
 5. Run on yote: `bun bin/forge.ts doctor` (expect paths PASS with
-   ESTATE=/home/toxic/estate selected from the probe list), `bun test
+   Pens=/home/toxic/pens/Pens selected from the probe list), `bun test
    tests/pattern-forge.test.ts` (32/32), and `forge borrow --skip exa`
    (github leg will still 401-skip until Chris re-mints the PAT — code is
    fine, creds are not).

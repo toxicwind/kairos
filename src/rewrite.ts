@@ -113,7 +113,7 @@ const WHY: Record<string, string> = {
 const REPLACEMENTS: Record<string, string> = {
   find: [
     "fd <needle> <dir?>   # fast, gitignore-aware replacement for 'find'",
-    "   or: ffs find <needle> --root <dir>  # estate index",
+    "   or: ffs find <needle> --root <dir>  # Pens index",
     "NEVER walk the whole disk: scope to a dir, or use the on-disk ffs index.",
   ].join("\n      "),
   grep: [
